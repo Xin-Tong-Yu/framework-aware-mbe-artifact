@@ -2,7 +2,7 @@
 
 These directories map the manuscript's separate ablation studies to the original frozen campaign modules. The full C++ and Python code is distributed as a **single source-only archive** named `MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip` in this directory. The archive has no cleaned graph copies, benchmark timings, or historical result files.
 
-**Release status:** the archive must actually be present in the repository before these ablations can be rerun. This directory layout and documentation do not, by themselves, supply the omitted executable source.
+**Release status:** the pinned source archive has been uploaded to this directory. Its original campaign files passed an independent source-presence check. Full clean-clone experimental execution and final manuscript table matching remain to be validated.
 
 The source archive should have SHA-256:
 
@@ -17,9 +17,10 @@ python3 scripts/prepare_data.py
 python3 scripts/verify_artifact.py
 ```
 
-After uploading the source archive to this directory:
+With the source archive already present in this directory:
 
 ```bash
+python3 scripts/setup_paper_ablations.py --check-only
 python3 scripts/setup_paper_ablations.py
 bash scripts/run_paper_ablations.sh check-source
 ```
