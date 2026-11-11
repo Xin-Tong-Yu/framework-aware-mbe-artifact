@@ -106,7 +106,7 @@ The implementations adapt the published ICDE 2024 MBET and SIGMOD 2026 IPS algor
 
 ### Manuscript experiment coverage and result validation
 
-See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for a table-by-table mapping of what can currently be rerun and which final ablation drivers are still missing. This repository is not yet a full reproduction package for every manuscript table.
+See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for the table-by-table coverage inventory, and [src/paper_ablations/README.md](src/paper_ablations/README.md) for the additional manuscript ablation campaigns. Their original source modules are packaged in a small, pinned source-only ZIP. Until that ZIP is uploaded to `src/paper_ablations/`, those campaigns are **not yet executable from a clone**. This repository should not be described as a complete all-tables reproduction package until the source ZIP is uploaded, all drivers have been verified against the submitted figures, and third-party redistribution is cleared.
 
 After the unguided 13-graph campaign finishes, each per-graph output can be checked for all six configurations, five blocks, consistent result counts and within-framework fingerprints:
 
