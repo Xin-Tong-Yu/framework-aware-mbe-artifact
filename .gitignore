@@ -1,0 +1,25 @@
+# Restored input graphs and reconstructed archive
+/data_clean/
+/data/CLEANED_GRAPH_FILES.zip
+/data/CLEANED_GRAPH_FILES.zip.tmp
+
+# Generated benchmark outputs and logs
+/outputs/
+*.log
+
+# Local build artifacts and caches
+/build/
+/cmake-build-*/
+/.mbet_fair_build_cache/
+/.mbet_pure_build_cache/
+__pycache__/
+*.py[cod]
+*.o
+*.so
+*.exe
+
+# Machine-specific settings and credentials
+.env
+.env.*
+!.env.example
+.DS_Store
