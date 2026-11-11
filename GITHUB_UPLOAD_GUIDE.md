@@ -11,3 +11,7 @@ This **results-free repository bundle** was organized for browser upload: it con
 7. Only after confirming that the repository covers all results required for the intended paper submission, provide its URL to the conference. This version is a verified-core subset and does **not** yet contain every manuscript ablation.
 
 GitHub browser uploads are authenticated using your GitHub web session; no terminal Git password or personal access token is needed. Do not include access tokens, passwords, unreviewed internal logs, or local `.git` metadata.
+
+## Additional paper ablation source bundle
+
+Upload `MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip` as **one file** into `src/paper_ablations/`; it is approximately 400 KB. It is not precomputed results. After uploading the file, test with `python3 scripts/setup_paper_ablations.py --check-only` followed by `python3 scripts/setup_paper_ablations.py`. The checkout must contain the complete six-part graph archive as well. The directories in `src/paper_ablations/` describe each campaign; the bundled code is extracted to an ignored build area rather than scattered across the repository.
