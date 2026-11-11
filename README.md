@@ -4,7 +4,7 @@
 
 This repository contains **source code, runnable experiment entry points, and the exact cleaned inputs for 13 bipartite graphs**. It intentionally **does not contain precomputed experiment results, timing CSV files, machine-specific logs, or historical development versions**. Re-running a benchmark creates new results under the Git-ignored `outputs/` directory.
 
-**Coverage:** this release can rerun (1) the four-mode MBET/MBETM versus optimized Single comparison and (2) the unguided Single/Double ST/ET1/ET2 ablation. It is a **verified-core subset**, not yet a complete artifact for every experiment described in the manuscript. In particular, the separately evaluated Candidate Tree Inline/Cursor/Pre-fork, Result Tree layout/CR, Double Vector/Compact and guided ET/TG campaigns still require their final matched source configurations before they can be claimed reproducible here. Do not describe this release as a complete all-tables EAB artifact.
+**Coverage:** the four-mode MBET/MBETM comparison and unguided Single/Double ST/ET1/ET2 ablation have dedicated runners. A pinned source-only bundle for the additional Candidate Tree, Result Tree/CR, Double Vector/Compact, guided ET/TG and native IPS campaigns is now included in `src/paper_ablations/`. The source archive and entry-point structure have been checked; **full clean-clone execution and agreement with every submitted table are still pending**. Do not yet describe the entire manuscript as fully reproduced.
 
 ### Contents
 
@@ -16,7 +16,8 @@ This repository contains **source code, runnable experiment entry points, and th
 | `data/parts/` | Six pieces of the cleaned-graph data archive; each under 25 MiB |
 | `data/COLLECTED_INPUT_SHA256.csv` | Fixed SHA-256 and file-size manifest for all 13 inputs |
 | `data/GRAPH_STATISTICS.csv` | Number of vertices, edges, and maximum degree for each input graph |
-| `scripts/` | Data restoration, input integrity checks and release checks |
+| `scripts/` | Data restoration, integrity checks, complete-run validation and campaign launchers |
+| `src/paper_ablations/` | Documented paper ablations and pinned source-only ZIP for the other experiment matrices |
 
 No `results/` folder is included. No compiled binaries are required in the repository.
 
@@ -91,14 +92,14 @@ The runner accepts one graph per `all` call. A convenience launcher for all 13 g
 bash scripts/run_pure_13.sh
 ```
 
-This launches only the documented six pure modes. It writes new results to `outputs/pure_13/` and retains per-graph logs. It skips an existing output CSV rather than silently overwriting it; remove an output CSV explicitly if you want to rerun that graph. For a different input directory set `DATA_DIR` and for a different output directory set `OUT_DIR` before launching.
+This launches only the documented six pure modes. It writes new results to `outputs/pure_13/` and retains per-graph logs. It skips an existing output CSV **only when** the six-mode, five-block completeness and within-framework fingerprint check passes. Incomplete CSV files cause a clear error and must be retained for inspection or moved aside before rerunning. For a different input directory set `DATA_DIR` and for a different output directory set `OUT_DIR` before launching.
 
 ### Reproduction and reporting protocol
 
 - The MBET-family and pure-ET campaigns are separate; their compile, timer, and output-processing details are recorded in the corresponding ZIP runner sources.
 - The default performance measurements exclude graph reading and native compilation from each runner's reported search time. Do not compare separately calibrated campaigns as if they used identical timing boundaries.
 - No benchmark timings or claimed speedups are embedded as precomputed results in this repository. The code generates fresh CSV files when run.
-- Reproduction of the paper's other ST/CR/ET/TG tables requires additional final experiment code not contained in this subset.
+- Additional ST/CR/ET/TG and native IPS source is included in `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip`. Use `python3 scripts/setup_paper_ablations.py` and `bash scripts/run_paper_ablations.sh check-source` before selecting a campaign. These studies still require a clean-clone end-to-end verification against the final manuscript.
 
 ### Provenance and redistribution
 
@@ -106,7 +107,7 @@ The implementations adapt the published ICDE 2024 MBET and SIGMOD 2026 IPS algor
 
 ### Manuscript experiment coverage and result validation
 
-See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for the table-by-table coverage inventory, and [src/paper_ablations/README.md](src/paper_ablations/README.md) for the additional manuscript ablation campaigns. Their original source modules are packaged in a small, pinned source-only ZIP. Until that ZIP is uploaded to `src/paper_ablations/`, those campaigns are **not yet executable from a clone**. This repository should not be described as a complete all-tables reproduction package until the source ZIP is uploaded, all drivers have been verified against the submitted figures, and third-party redistribution is cleared.
+See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for the table-by-table coverage inventory, and [src/paper_ablations/README.md](src/paper_ablations/README.md) for the additional manuscript ablation campaigns. Their original source modules are packaged in a small, pinned source-only ZIP. The pinned ZIP is now present and has the expected Git object identity and local SHA-256. Run `python3 scripts/setup_paper_ablations.py --check-only` after cloning, then follow the individual campaign instructions. This repository should not be described as a fully validated all-tables reproduction package until the drivers have been checked against the final manuscript and third-party redistribution has been cleared.
 
 After the unguided 13-graph campaign finishes, each per-graph output can be checked for all six configurations, five blocks, consistent result counts and within-framework fingerprints:
 
