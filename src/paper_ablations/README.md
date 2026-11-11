@@ -42,7 +42,7 @@ bash scripts/run_paper_ablations.sh ips-native-baseline --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh ips-native-ablation --runs 5 --timeout 1200
 ```
 
-The underlying `framework_ablations/run_experiments.sh` dispatches each command to the corresponding original campaign runner. It also supports `oracle 20`, `single-baseline`, and `build-core`.
+The underlying `framework_ablations/run_experiments.sh` dispatches each command to the corresponding original campaign runner. It also supports `oracle 20`, `single-baseline`, and `build-core`. The public `scripts/run_paper_ablations.sh oracle 20` wrapper prepares native executables before the oracle's per-mode timeout, so first-run compilation is excluded from those short checks.
 
 ## Scientific interpretation
 
