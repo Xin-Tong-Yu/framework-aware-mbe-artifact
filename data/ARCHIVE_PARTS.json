@@ -1,0 +1,38 @@
+{
+  "archive_name": "CLEANED_GRAPH_FILES.zip",
+  "archive_bytes": 121198268,
+  "archive_sha256": "b75dbcda12631b9adfc5a3169666d9d869424131e7193b3aac3e6bed30acdd1f",
+  "chunk_size_bytes": 20971520,
+  "parts": [
+    {
+      "file": "parts/graph_data_000.part",
+      "bytes": 20971520,
+      "sha256": "0540347af685ee33eced8e073e5fd850d7f7adcb8b4123af51128d23e00b5891"
+    },
+    {
+      "file": "parts/graph_data_001.part",
+      "bytes": 20971520,
+      "sha256": "213d318b90dc6481a23909703af10656000f8962f1bc8ef9da91ff262767f299"
+    },
+    {
+      "file": "parts/graph_data_002.part",
+      "bytes": 20971520,
+      "sha256": "da58a52a5c5d3ff276671ba911f87e0cf083f38159f4e74bd33abf453d24d29e"
+    },
+    {
+      "file": "parts/graph_data_003.part",
+      "bytes": 20971520,
+      "sha256": "bf1e3c917407d6247922f13cff0d618ab886f09c43701fcd89f5b29f5f0ac68b"
+    },
+    {
+      "file": "parts/graph_data_004.part",
+      "bytes": 20971520,
+      "sha256": "99702578555b80dbfd8a4e155b8ab22e984cf101e14a9d31f9c9a182c109923a"
+    },
+    {
+      "file": "parts/graph_data_005.part",
+      "bytes": 16340668,
+      "sha256": "af46e886c088a7e2a05990d0d4141d46967819a4cdaa84cc79c571c3a7e6fd0f"
+    }
+  ]
+}
