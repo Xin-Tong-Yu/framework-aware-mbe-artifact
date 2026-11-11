@@ -6,8 +6,8 @@ implementation has a fixed-budget optional adjacency bitmap with an exact
 hash fallback to avoid very large dense index allocations.
 
 ```bash
-python3 packages/MBE_PURE_ET1_ET2.zip selftest --cases 50 --modes single_st,single_et1,single_et2,double_compact_st,double_compact_et1,double_compact_et2
-python3 packages/MBE_PURE_ET1_ET2.zip all data_clean/youtube.txt --modes pure --repeats 5 --out youtube_pure.csv
+python3 runners/MBE_PURE_ET1_ET2.zip selftest --cases 50 --modes single_st,single_et1,single_et2,double_compact_st,double_compact_et1,double_compact_et2
+python3 runners/MBE_PURE_ET1_ET2.zip all data_clean/youtube.txt --modes pure --repeats 5 --out youtube_pure.csv
 ```
 
 For the separate guided comparison choose `--modes guided`. Matching and
