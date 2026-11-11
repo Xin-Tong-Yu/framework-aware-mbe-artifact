@@ -59,6 +59,8 @@ For a native small-graph oracle comparison in the expanded suite:
 bash scripts/run_paper_ablations.sh oracle 20
 ```
 
+The `oracle` launcher compiles the required native executables on first use, **before** the oracle's per-mode execution timeout begins.
+
 ## 3. Run the four-mode MBET comparison
 
 ```bash
