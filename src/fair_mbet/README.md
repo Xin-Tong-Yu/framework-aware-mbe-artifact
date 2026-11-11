@@ -14,5 +14,4 @@ python3 runners/MBE_FAIR_MBET_2024.zip bench data_clean/youtube.txt --modes mbet
 python3 runners/MBE_FAIR_MBET_2024.zip batch --data-dir data_clean --modes mbet,mbetm,st_nocr,st_cr --repeats 5 --out-dir fair_13_results --resume
 ```
 
-`st_nocr` and `st_cr` are build-specific variants. Confirm their compile flags
-against the final manuscript configuration before citing the comparison.
+`st_nocr` and `st_cr` are build-specific variants. Their switches and build definitions are included in the runner source. All four modes use the same input and output-fingerprint contract.
