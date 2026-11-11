@@ -1,19 +1,38 @@
 # Software and data attribution
 
-This repository contains experimental implementations and comparative drivers for maximal biclique enumeration (MBE). The source archive preserves the implementation modules used for the reported studies.
+This repository contains experimental implementations and comparative drivers for maximal biclique enumeration (MBE). Source code and graph inputs are described separately below.
 
 ## Algorithmic sources
 
-- **MBET / MBETM:** *Maximal Biclique Enumeration: A Prefix Tree Based Approach*, IEEE ICDE 2024. The MBET-family experiment contains the original baseline representation and the corresponding implementation variants.
-- **IPS:** *Maximal Biclique Enumeration with Improved Worst-Case Time Complexity Guarantee: A Partition-Oriented Strategy*, ACM SIGMOD 2026. The IPS-native runs use a count-aggregation protocol, which is reported separately from explicit-output enumeration experiments.
-- **Single/Double framework variants:** the additional Candidate Tree, Result Tree, state-representation, and terminal/guidance experiments are organized by study in `src/paper_ablations/`.
+- **MBET / MBETM:** *Maximal Biclique Enumeration: A Prefix Tree Based Approach*, IEEE ICDE 2024. The MBET-family experiment contains the original baseline representation and implementation variants.
+- **IPS:** *Maximal Biclique Enumeration with Improved Worst-Case Time Complexity Guarantee: A Partition-Oriented Strategy*, ACM SIGMOD 2026. The IPS-native studies use a count-aggregation protocol, reported separately from explicit-output enumeration.
+- **Single/Double framework variants:** Candidate Tree, Result Tree, state representation, and termination/guidance experiments are organized in `src/paper_ablations/`.
 
-The relevant upstream algorithm credit, source headers, and notices are retained where supplied by the underlying implementations. This repository does not grant new rights to material owned by other parties.
+Original authors and other rights holders retain their applicable intellectual-property and license rights. Code attribution is not a substitute for the applicable upstream source licenses.
 
-## Graph inputs
+## Dataset source: KONECT
 
-Thirteen bipartite graph inputs are stored as a deterministic, segmented archive under `data/parts/`. The exact cleaned bytes are specified by `data/COLLECTED_INPUT_SHA256.csv`, and graph statistics are listed in `data/GRAPH_STATISTICS.csv`.
+**All thirteen experimental graph datasets were downloaded from the [Koblenz Network Collection (KONECT)](https://konect.cc/)**, curated by Jérôme Kunegis. KONECT is the common acquisition source, although the original networks may have their own respective creators and citation requirements.
 
-The input labels are: Forum, UKWiki, Escorts, YouTube, GitHub, BookCrossing, StackOverflow, Actors, Twitter, BibSonomy, IMDb, Amazon, and DBLP. The cleaned input files use a three-integer `nL nR m` header followed by bipartite edge pairs.
+The data preparation performed for these experiments was described by the authors as a **format conversion only, without intentional deletion, sampling, or filtering of graph records**. The resulting bipartite edge-list files are presented in the format expected by the benchmark programs:
 
-The original dataset providers and upstream code authors retain their applicable intellectual-property and license rights. The experimental archive and its checksum manifests describe the specific inputs and implementations; they do not independently license third-party content. Any reuse or redistribution must follow the original source terms.
+```text
+nL nR m
+left_vertex_id right_vertex_id
+left_vertex_id right_vertex_id
+...
+```
+
+The first line is graph metadata, not an edge. The files represent the same intended bipartite incidence relations as the downloaded source graphs. The repository includes exact checksums for the converted inputs, not the original KONECT downloads; therefore the provided hashes establish reproducibility of the experimental inputs rather than an independently audited record-by-record comparison with the source downloads.
+
+The thirteen graph labels used in the experiments are: Forum, UKWiki, Escorts, YouTube, GitHub, BookCrossing, StackOverflow, Actors, Twitter, BibSonomy, IMDb, Amazon, and DBLP. The canonical converted input files are stored in six archive parts under `data/parts/`, with exact SHA-256 hashes in `data/COLLECTED_INPUT_SHA256.csv` and graph measurements in `data/GRAPH_STATISTICS.csv`.
+
+### Citation
+
+Jérôme Kunegis. **KONECT – The Koblenz Network Collection.** *Proceedings of the International Conference on World Wide Web Companion (WWW Companion)*, pp. 1343–1350, 2013.
+
+- Project website: https://konect.cc/
+- Official KONECT reference bibliography: https://github.com/kunegis/konect-handbook/blob/master/konect.bib
+- KONECT handbook and format details: https://github.com/kunegis/konect-handbook
+
+KONECT's project-software licensing is not a blanket license covering all third-party datasets. Redistribution and further use of individual graphs remain subject to their original providers' terms. Users should cite the original dataset publications as applicable.
