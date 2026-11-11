@@ -10,4 +10,4 @@ Run after installing the source bundle:
 bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200
 ```
 
-Do not mistake the historical V63 module identifier for a requirement to release every preceding version. Only the runner and dependent source needed for this matrix are staged.
+The archive includes the runner and its dependent C++ source for this comparison.
