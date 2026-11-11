@@ -13,4 +13,4 @@ python3 scripts/verify_artifact.py
 
 The reconstructed `CLEANED_GRAPH_FILES.zip`, `data_clean/`, and generated `outputs/` are excluded from version control. No benchmark result files are bundled in this release.
 
-**Before public redistribution**, confirm each original dataset's license/terms and provide appropriate attribution. Fixed input hashes prove identity, not permission to redistribute the content.
+The SHA-256 manifests document the exact experimental inputs. Data attribution and third-party reuse information are described in `SOURCE_ATTRIBUTION.md` at the repository root.
