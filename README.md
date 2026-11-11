@@ -104,4 +104,18 @@ This launches only the documented six pure modes. It writes new results to `outp
 
 The implementations adapt the published ICDE 2024 MBET and SIGMOD 2026 IPS algorithms. Read `SOURCE_ATTRIBUTION.md` and retain upstream notices and licenses. The graph inputs come from third-party datasets; **confirm that redistributing the cleaned graph bytes is permitted before making the six data parts publicly available**. The presence of the inputs in this staging package does not itself establish their redistribution rights. If that cannot be confirmed, publish the SHA-256 manifest plus documented source links and a deterministic cleaning/reconstruction workflow instead.
 
+### Manuscript experiment coverage and result validation
+
+See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for the table-by-table coverage inventory, and [src/paper_ablations/README.md](src/paper_ablations/README.md) for the additional manuscript ablation campaigns. Their original source modules are packaged in a small, pinned source-only ZIP. Until that ZIP is uploaded to `src/paper_ablations/`, those campaigns are **not yet executable from a clone**. This repository should not be described as a complete all-tables reproduction package until the source ZIP is uploaded, all drivers have been verified against the submitted figures, and third-party redistribution is cleared.
+
+After the unguided 13-graph campaign finishes, each per-graph output can be checked for all six configurations, five blocks, consistent result counts and within-framework fingerprints:
+
+```bash
+python3 scripts/validate_pure_csv.py --graph youtube.txt outputs/pure_13/youtube.csv
+```
+
+The batch launcher now refuses to silently skip an existing incomplete CSV. This check is an internal consistency check, not an independent mathematical proof of maximality or completeness.
+
+**Data availability check:** the canonical archive requires all six `data/parts/graph_data_000.part` through `graph_data_005.part` files. If any part is missing, `python3 scripts/prepare_data.py --check-only` will stop with an error; do not claim data restoration has passed until all six hashes match.
+
 See `GITHUB_UPLOAD_GUIDE.md` and `RELEASE_CHECKLIST.md` before submitting the public repository URL.
