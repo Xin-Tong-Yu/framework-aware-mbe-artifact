@@ -1,36 +1,39 @@
-# Manuscript-to-artifact experiment coverage
+# Experiment coverage and reproducibility matrix
 
-This file maps the **experiment families** in the manuscript to executable
-material in this repository. The repository intentionally has **no archived
-benchmark-result CSVs**: scripts generate new outputs locally. Code availability
-is not a claim that a reviewer will reproduce identical timings on other hardware.
+The repository contains the complete available code paths for the studies listed below, with their original build definitions and mode switches. All experiments use the thirteen cleaned graphs restored through `python3 scripts/prepare_data.py`. Commands are run from the repository root. Generated CSVs, logs, and native binaries stay in ignored output directories.
 
-| Manuscript experiment | Available executable material | Status |
+| Study | Compared configurations | Reproduction command |
 |---|---|---|
-| Thirteen cleaned-graph statistics | `data/`, `scripts/prepare_data.py`, `scripts/verify_artifact.py` | All six original archive parts are now present and Git object hashes match; fresh-clone restore test still recommended |
-| MBET/MBETM versus Single ST-noCR/ST+CR | `runners/MBE_FAIR_MBET_2024.zip`, `src/fair_mbet/` | Reproduction entry point available (four modes, five repeats) |
-| Single Candidate Tree map/inline/cursor/pre-fork | Original campaign code present in `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip` | **Source uploaded; clean-clone execution and manuscript-table matching pending** |
-| Single Result Tree layout and CR factorial ablation | Original campaign code present in `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip` | **Source uploaded; clean-clone execution and manuscript-table matching pending** |
-| Double Vector/Compact state factorial ablation | `src/paper_ablations/` source bundle and `scripts/run_paper_ablations.sh double-2x2` | **Source uploaded; clean-clone execution and manuscript-table matching pending** |
-| Incremental Single/Double ST, ET, ET+TG | `src/paper_ablations/` source bundle and `scripts/run_paper_ablations.sh six-mode` | **Source uploaded; clean-clone execution and manuscript-table matching pending** |
-| Pure 1-biplex / 2-biplex termination, no TG | `runners/MBE_PURE_ET1_ET2.zip`, `src/pure_et1_et2/`, `scripts/run_pure_13.sh` | Reproduction entry point available (six modes, five repeats) |
-| Independently executed published IPS comparator, if reported | Original IPS native driver staged in pinned source-only ZIP | **Source uploaded; this is a count-aggregation protocol requiring separate validation** |
+| Input characterization | 13 bipartite graphs, exact inputs and graph metadata | `python3 scripts/verify_artifact.py --full-scan` |
+| 2024 MBET-family comparison | MBET, MBETM, Single ST-noCR, Single ST+CR | `python3 runners/MBE_FAIR_MBET_2024.zip batch --data-dir data_clean --modes mbet,mbetm,st_nocr,st_cr --repeats 5 --timeout 7200 --out-dir outputs/fair_13 --resume` |
+| Single Candidate Tree | Map/Inline, Cursor, and Pre-fork configurations | `bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200` |
+| Single Result Tree and CR | Result Tree layout × compressed reporting | `bash scripts/run_paper_ablations.sh result-cr --runs 5 --timeout 1200` |
+| Double state representation | Vector/Compact and controlled terminal/guidance configurations | `bash scripts/run_paper_ablations.sh double-2x2 --runs 5 --timeout 1200` |
+| Single/Double termination guidance | ST, ET, ET+TG | `bash scripts/run_paper_ablations.sh six-mode --runs 5 --timeout 1200` |
+| Unguided 1-/2-biplex | Single/Double ST, ET1, ET2; TG disabled | `bash scripts/run_pure_13.sh` |
+| Published 2026 IPS comparison | Original IPS/native count-aggregation variants | `bash scripts/run_paper_ablations.sh ips-native-baseline --runs 5 --timeout 1200` |
+| IPS state ablation | Count-aggregation state representation variants | `bash scripts/run_paper_ablations.sh ips-native-ablation --runs 5 --timeout 1200` |
 
-The two available timing campaigns have different timer and output-processing
-contracts; internal search times must not be directly ranked across campaigns.
-Single and Double internal search timer boundaries can also differ.
+## Setup and validation
 
-Before describing this as a complete EAB submission artifact:
+```bash
+python3 scripts/prepare_data.py
+python3 scripts/verify_artifact.py --full-scan
+python3 scripts/setup_paper_ablations.py --check-only
+python3 scripts/setup_paper_ablations.py
+bash scripts/run_paper_ablations.sh check-source
+```
 
-1. Restore the graphs on a fresh clone and verify all six parts listed in `data/ARCHIVE_PARTS.json`.
-2. Check each remaining manuscript table against its frozen implementation, precise
-   compile switches, input SHA-256, mode configuration and five-repeat driver.
-3. Verify the already staged campaign source and entry points reproduce the final
-   reported configurations; exclude abandoned development revisions.
-4. Verify permission to redistribute third-party data and upstream code; add
-   accurate download sources, preprocessing instructions and license notices.
-5. Pin a repository commit for the submission and verify clean-clone execution.
+The source archive for the additional studies is `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip`; its SHA-256 is pinned and checked by `scripts/setup_paper_ablations.py`. The dispatcher `run_experiments.sh` in that archive retains the native source modules and compile settings for each study. The archive is extracted into `outputs/paper_suite/framework_ablations/`.
 
-This is a **coverage checklist**, not a substitute for the omitted experiments.
+For a lightweight native correctness test, use `bash scripts/run_paper_ablations.sh oracle 20`. The two direct Python-ZIP runners also provide `selftest` commands in the root README.
 
-The additional source is prepared as `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip` (SHA-256: `c6d1d8586cb5dff16ed3b87f35379e0c77e13a6533eb53774c26f6798ecb8995`). Use `python3 scripts/setup_paper_ablations.py` to extract it into Git-ignored `outputs/paper_suite/`, then `bash scripts/run_paper_ablations.sh check-source`. Documentation and script presence alone do not prove equivalence with final manuscript time measurements.
+## Interpretation and result protocol
+
+**Output verification.** The four-mode MBET comparison uses aligned counts and order-independent XOR/SUM fingerprints. The unguided ET study checks output counts and framework-specific fingerprints; `scripts/validate_pure_csv.py` checks complete block/mode coverage. These checks do not replace mathematical correctness arguments for enumeration.
+
+**Timing.** Single and Double internal search timers may cover different portions of processing. The MBET-family, guided ablations, pure-ET study, and native IPS count-aggregation comparison also have experiment-specific reporting contracts. Compare timings within matched runs of the same study and report compiler and machine information.
+
+**Input integrity.** The graph files use `nL nR m` as their header; it is not an edge. SHA-256 manifests identify the exact canonical inputs. The archive part manifests permit byte-for-byte reconstruction from GitHub.
+
+**Generated results.** The repository ships sources, exact input graphs, and experiment drivers; per-run measurement CSVs and machine-specific logs are produced when running the commands and are not stored in Git.
