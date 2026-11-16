@@ -22,6 +22,8 @@ This repository provides **experiment source code, thirteen cleaned bipartite gr
 
 Linux or WSL2; Python 3.9 or later; GCC/G++ with C++17 support; CMake; Bash; and standard Unix utilities. The reference environment used Ubuntu 24.04 and GCC 13.3.0. Experiments use single-threaded execution. Runtime and memory usage depend on the input graph and machine; allow sufficient RAM and disk space. The pure-biplex BibSonomy campaign uses a 256 MiB stack allowance in its launcher.
 
+On Windows, clone from WSL or ensure the checkout uses LF for shell scripts. The repository records this setting in `.gitattributes`.
+
 ## 1. Prepare and verify the thirteen graph inputs
 
 From the repository root:
@@ -81,7 +83,9 @@ python3 runners/MBE_FAIR_MBET_2024.zip batch \
   --out-dir outputs/fair_13 --resume
 ```
 
-The four modes use aligned count and order-independent XOR/SUM fingerprints; disk tuple writing is disabled in the benchmark configuration.
+The four modes use aligned count and order-independent XOR/SUM fingerprints with disk tuple writing disabled.
+
+Keep each CSV and its `.csv.manifest.json` together. With `--resume`, the runner reuses complete blocks for the same input, binaries, compiler, mode order, seed, and execution settings. It reruns an interrupted block from the beginning. Use a new output path for an older CSV without a manifest or for a changed configuration.
 
 ## 4. Run the unguided ET1/ET2 ablation
 
@@ -101,7 +105,7 @@ For the thirteen-graph campaign:
 bash scripts/run_pure_13.sh
 ```
 
-The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher validates an existing six-mode, five-block CSV before skipping it; an incomplete or inconsistent file is reported instead of silently reused.
+The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher skips a graph only when its CSV and `.csv.manifest.json` match the current input, binaries, and execution settings. It also checks six-mode, five-block coverage and agreement of counts and fingerprints. Use a new output directory to keep older CSVs available for inspection.
 
 ## 5. Run the other manuscript ablations
 

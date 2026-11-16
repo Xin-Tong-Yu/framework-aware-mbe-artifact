@@ -8,6 +8,7 @@ correct answer set, nor does it benchmark any algorithm.
 import argparse
 import csv
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -58,9 +59,9 @@ def validate(path, expected_graph=None):
                 raise ValueError("block out of range")
             if not graph:
                 raise ValueError("missing graph name")
-            if count <= 0 or not math.isfinite(time_s) or time_s < 0:
+            if count <= 0 or not math.isfinite(time_s) or time_s <= 0:
                 raise ValueError("invalid count or time")
-            if not fp or "|" not in fp:
+            if not re.fullmatch(r'[0-9]+\|[0-9]+', fp):
                 raise ValueError("invalid fingerprint")
             if tg not in ("0", "false"):
                 raise ValueError("pure ablation must have TG disabled")

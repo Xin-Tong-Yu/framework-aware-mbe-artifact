@@ -7,11 +7,16 @@ the user does not have to unzip the distribution.
 """
 import argparse
 import csv
+import fcntl
+from functools import lru_cache
 import hashlib
+import json
 import os
 from pathlib import Path
+import platform
 import random
 import re
+import resource
 import shutil
 import statistics
 import subprocess
@@ -181,27 +186,51 @@ YOUTUBE_MATRIX = [
 def die(msg):
     raise SystemExit('[ERROR] '+str(msg))
 
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def compiler_identity():
+    name = os.environ.get('CXX', 'g++')
+    compiler = shutil.which(name)
+    if compiler is None:
+        die('Compiler not found: ' + name)
+    return compiler, subprocess.check_output([compiler, '--version'], text=True)
+
+
 def root_cache():
     path=Path(os.environ.get('MBE2_CACHE',str(Path.home()/'.cache'/'mbe_pure_2biplex'))).expanduser()
     archive=Path(sys.argv[0]).resolve()
     if not zipfile.is_zipfile(archive):
         die('Use the ZIP directly: python3 MBE_1V2_BIPLEX_ET_PROFILER.zip ...')
-    digest=hashlib.sha256(archive.read_bytes()).hexdigest()[:16]
+    digest=sha256(archive)
     return path/digest,archive
 
 def install(cache,archive):
-    marker=cache/'engine'/'two'/'ips.hpp'
-    if marker.is_file() and (cache/'engine'/'one'/'src'/'MBET.hpp').is_file():
+    if (cache / 'engine').is_dir():
         return
-    cache.mkdir(parents=True,exist_ok=True)
-    with zipfile.ZipFile(archive) as z:
-        for info in z.infolist():
-            if not info.filename.startswith('engine/') or info.is_dir():continue
-            relative=Path(info.filename)
-            if '..' in relative.parts:die('Unsafe ZIP entry')
-            target=cache/relative
-            target.parent.mkdir(parents=True,exist_ok=True)
-            with z.open(info) as src,target.open('wb') as dst: shutil.copyfileobj(src,dst)
+    cache.mkdir(parents=True, exist_ok=True)
+    with (cache / '.install.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (cache / 'engine').is_dir():
+            return
+        with zipfile.ZipFile(archive) as z, tempfile.TemporaryDirectory(dir=cache) as temp:
+            for info in z.infolist():
+                if not info.filename.startswith('engine/') or info.is_dir():
+                    continue
+                relative = Path(info.filename)
+                if '..' in relative.parts:
+                    die('Unsafe ZIP entry')
+                target = Path(temp) / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(info) as src, target.open('wb') as dst:
+                    shutil.copyfileobj(src, dst)
+            (Path(temp) / 'engine').replace(cache / 'engine')
 
 def single_flags(d):
     flags=['-DMBE_ET_STREAM=1', '-DMBE_V32_CANDIDATE_POOL=1',
@@ -242,28 +271,52 @@ def build(mode,cache,archive,quiet=False):
     flags=single_flags(d) if kind=='single' else double_flags(d)
     # Different ET/TG switches in single are runtime switches, so binaries
     # are keyed by actual compiler arguments, not by name or description.
-    sig=hashlib.sha256((str(src)+repr(flags)+kind+BUILD_PROFILE).encode()).hexdigest()[:14]
+    compiler, version = compiler_identity()
+    sig=hashlib.sha256(json.dumps([str(src), flags, kind, BUILD_PROFILE, compiler, version]).encode()).hexdigest()[:20]
     exe=cache/'bin'/('one_' if kind=='single' else 'two_')
     exe=exe.with_name(exe.name+sig)
     if exe.is_file():return exe
     exe.parent.mkdir(parents=True,exist_ok=True)
-    compiler=os.environ.get('CXX','g++')
-    if shutil.which(compiler) is None:die('g++ not available. Run in WSL2/Linux with GCC 12+ and Python 3.9+.')
-    cmd=[compiler,'-'+BUILD_PROFILE,'-std=c++17','-UNDEBUG','-I',str(src),*flags,str(src/'main.cpp'),'-o',str(exe)]
-    if not quiet:print('[BUILD]',mode,flush=True)
-    r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-    if r.returncode:die('Compilation failed for '+mode+'\n'+r.stderr[-5000:])
+    with exe.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if exe.is_file():
+            return exe
+        with tempfile.TemporaryDirectory(dir=exe.parent) as temp:
+            binary = Path(temp) / 'engine'
+            cmd = [compiler, '-' + BUILD_PROFILE, '-std=c++17', '-UNDEBUG', '-I', str(src),
+                   *flags, str(src / 'main.cpp'), '-o', str(binary)]
+            if not quiet:
+                print('[BUILD]', mode, flush=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode:
+                die('Compilation failed for ' + mode + '\n' + result.stderr[-5000:])
+            binary.replace(exe)
     return exe
 
-def graph_variants(graph,cache):
+def graph_variants(graph,cache,graph_sha=None):
     graph=Path(graph).resolve()
     if not graph.is_file():die('Graph not found: '+str(graph))
-    key=hashlib.sha256((str(graph)+str(graph.stat().st_size)+str(graph.stat().st_mtime_ns)).encode()).hexdigest()[:16]
-    directory=cache/'graphs'/key
-    directory.mkdir(parents=True,exist_ok=True)
+    graph_sha = graph_sha or sha256(graph)
+    directory=cache/'graphs'/graph_sha
     single=directory/'graph.edges'
     double=directory/'graph.clean'
     if single.is_file() and double.is_file():return single,double
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=directory.parent) as temp:
+        stage = Path(temp) / 'graph'
+        stage.mkdir()
+        convert_graph(graph, stage / single.name, stage / double.name)
+        if sha256(graph) != graph_sha:
+            die('Input graph changed during conversion: ' + str(graph))
+        try:
+            stage.rename(directory)
+        except OSError:
+            if not (single.is_file() and double.is_file()):
+                raise
+    return single,double
+
+
+def convert_graph(graph, single, double):
     # Auto-detect a canonical three-integer clean header (only first line).
     # The supplied two-side .clean format is expected to be 0-based.
     with graph.open(encoding='utf8') as f:
@@ -291,7 +344,6 @@ def graph_variants(graph,cache):
         with double.open('w',encoding='utf8') as o:
             o.write(f'{len(left)} {len(right)} {len(edges)}\n')
             for a,b in sorted(edges):o.write(f'{a} {b}\n')
-    return single,double
 
 def parse_stats(kind,stdout):
     def pick(pattern):
@@ -366,8 +418,9 @@ def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
     if emit_path:cmd+=['-o',str(emit_path)]
     return cmd
 
-def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,precomputed=None):
-    exe=build(mode,cache,archive,quiet=quiet)
+def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,precomputed=None,exe=None):
+    if exe is None:
+        exe=build(mode,cache,archive,quiet=quiet)
     paths=precomputed if precomputed is not None else graph_variants(graph,cache)
     cmd=command(mode,exe,*paths,min_left,min_right,emit_path)
     t=time.perf_counter()
@@ -485,9 +538,34 @@ def all_matrix(args,cache,archive):
     else:modes=args.modes.split(',')
     for m in modes:
         if m not in MODES:die('Unknown selected mode '+m)
+    out = Path(args.out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.with_suffix(out.suffix + '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        run_matrix(args, cache, archive, modes, out)
+
+
+def run_matrix(args, cache, archive, modes, out):
+    graph = Path(args.graph).resolve()
+    graph_sha = sha256(graph)
+    executables = {mode: build(mode, cache, archive) for mode in modes}
+    params = dict(graph=graph.name, input_sha256=graph_sha, runner_sha256=sha256(archive),
+                  executables={mode: sha256(exe) for mode, exe in executables.items()},
+                  modes=modes, repeats=args.repeats, seed=args.seed, timeout=args.timeout,
+                  min_left=args.min_left, min_right=args.min_right, build_profile=BUILD_PROFILE,
+                  compiler=list(compiler_identity()), host=list(platform.uname()),
+                  affinity=sorted(os.sched_getaffinity(0)),
+                  stack=list(resource.getrlimit(resource.RLIMIT_STACK)))
+    manifest = out.with_suffix(out.suffix + '.manifest.json')
+    if args.resume and out.exists():
+        expected = dict(parameters=params, csv_sha256=sha256(out))
+        if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')) != expected:
+            die(f'{out}: run configuration changed, manifest missing, or CSV altered; use a new output path')
+        print(f'[SKIP] {out}: complete matrix matches the current run configuration', flush=True)
+        return
+
     print(f'[MATRIX] {len(modes)} modes, {args.repeats} paired blocks; times exclude build/preprocess',flush=True)
-    for m in modes:build(m,cache,archive,quiet=False)
-    paths=graph_variants(args.graph,cache)
+    paths=graph_variants(graph,cache,graph_sha)
     rows=[]
     rng=random.Random(args.seed)
     for block in range(args.repeats):
@@ -496,7 +574,7 @@ def all_matrix(args,cache,archive):
         per_framework={}
         for mode in order:
             row,_=execute(mode,cache,archive,args.graph,args.min_left,args.min_right,args.timeout,
-                          quiet=True,precomputed=paths)
+                          quiet=True,precomputed=paths,exe=executables[mode])
             row['block']=block+1;rows.append(row)
             block_counts.append(row['count'])
             kind=row['kind'];fp=row['fingerprint']
@@ -513,12 +591,18 @@ def all_matrix(args,cache,archive):
             vals={v for _,v in group}
             if len(vals)>1:
                 die('Fingerprint mismatch in block '+str(block+1)+': '+str(group))
-    out=Path(args.out).resolve()
-    out.parent.mkdir(parents=True,exist_ok=True)
-    with out.open('w',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=['graph','block','mode','kind','time_s','wall_s',
-                      'count','et','tg','et_attempt','et_hit','et_degree2_hit','fingerprint','rss_mib','tg2_score_states','tg2_score_changes','tg2_cache_used','tg2_cache_fallback','branch_calls','et_output_count', 'et_gate_ms','et_setup_ms','et_build_ms', 'et_decompose_ms','et_generate_ms','et_gate_calls','et_terminal_calls','et_candidate_sum','et_max_candidate','et_pattern_components'])
-        writer.writeheader();writer.writerows(rows)
+    with tempfile.TemporaryDirectory(dir=out.parent) as temp:
+        csv_path = Path(temp) / out.name
+        manifest_path = Path(temp) / manifest.name
+        with csv_path.open('w', newline='') as f:
+            writer=csv.DictWriter(f,fieldnames=['graph','block','mode','kind','time_s','wall_s',
+                          'count','et','tg','et_attempt','et_hit','et_degree2_hit','fingerprint','rss_mib','tg2_score_states','tg2_score_changes','tg2_cache_used','tg2_cache_fallback','branch_calls','et_output_count', 'et_gate_ms','et_setup_ms','et_build_ms', 'et_decompose_ms','et_generate_ms','et_gate_calls','et_terminal_calls','et_candidate_sum','et_max_candidate','et_pattern_components'])
+            writer.writeheader()
+            writer.writerows(rows)
+        manifest_path.write_text(json.dumps(dict(parameters=params, csv_sha256=sha256(csv_path)),
+                                            indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        csv_path.replace(out)
+        manifest_path.replace(manifest)
     print('[CSV]',out)
     print('Mode\tmedian_search_s\tmedian_wall_s\tcount\tmedian_peak_RSS_MiB')
     for mode in modes:
@@ -573,6 +657,7 @@ def main():
         parser.add_argument('--timeout',type=int,default=3600)
         parser.add_argument('--seed',type=int,default=71213)
         parser.add_argument('--out',default='mbe_2biplex_results.csv')
+        parser.add_argument('--resume', action='store_true', help='Reuse a complete CSV only if its run configuration matches')
         parser.add_argument('--modes',default=('youtube' if command_name=='youtube' else 'main'),
                             help='pure|pure1|pure2|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
         a=parser.parse_args(argv[1:])
