@@ -56,6 +56,13 @@ CSV files and summaries with a SHA-256 inventory. This snapshot contains
 measurement records and checksums. Its README gives the command that
 regenerates the tables using the recorded historical runner hash.
 
+Generate the vector figure for the direct ET2/ET1 comparison from the
+rebuilt summary. The manuscript figure was produced with Matplotlib 3.9.2.
+
+```sh
+python3 scripts/plot_et_pairs.py "$dir/reconstructed/summary.json" et_paired.pdf
+```
+
 ## Regenerating Tables III–VI from native checkpoints
 
 Use a dedicated output directory and choose a logical CPU available to the
