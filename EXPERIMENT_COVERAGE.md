@@ -26,7 +26,7 @@ bash scripts/run_paper_ablations.sh check-source
 
 The source archive for the additional studies is `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip`; its SHA-256 is pinned and checked by `scripts/setup_paper_ablations.py`. The dispatcher `run_experiments.sh` in that archive retains the native source modules and compile settings for each study. The archive is extracted into `outputs/paper_suite/framework_ablations/`.
 
-For a lightweight native correctness test, use `bash scripts/run_paper_ablations.sh oracle 20`. The two direct Python-ZIP runners also provide `selftest` commands in the root README.
+For a lightweight native correctness test, use `bash scripts/run_paper_ablations.sh oracle 20`. Run `bash scripts/run_paper_ablations.sh prefix-oracle` to verify Single's matching and nonmatching prefix solvers on two constructed 17-by-17 graphs. The check compares complete output sets against an exhaustive closure oracle, rejects duplicates, and checks that a restrictive answer cap takes the fallback path on the cycle fixture. The two direct Python-ZIP runners also provide `selftest` commands in the root README.
 
 ## Interpretation and result protocol
 
@@ -36,4 +36,110 @@ For a lightweight native correctness test, use `bash scripts/run_paper_ablations
 
 **Input integrity.** The graph files use `nL nR m` as their header; it is not an edge. SHA-256 manifests identify the exact canonical inputs. The archive part manifests permit byte-for-byte reconstruction from GitHub.
 
-**Generated results.** The repository ships sources, exact input graphs, and experiment drivers; per-run measurement CSVs and machine-specific logs are produced when running the commands and are not stored in Git.
+**Generated results.** The repository ships sources, exact input graphs, and experiment drivers. Per-run measurements are kept separately from Git.
+
+## Rebuilding Tables II and VII from the original measurements
+
+With the original code-and-results ZIP and original Bitmap Guard runner ZIP, run:
+
+```sh
+dir=outputs/historical_paper_records
+python3 scripts/rebuild_archived_tables.py \
+  "$dir/MBE_GITHUB_CODE_AND_RESULTS_NO_DATA.zip" \
+  "$dir/MBE_BIPLEX_PURE_1V2_BITMAP_GUARD.zip" "$dir/reconstructed"
+```
+
+The script checks 260 MBET-family and 390 pure ET records against the canonical input identities and reference counts. It checks that MBET-family executable hashes, flags, and run settings agree across graphs, and matches the Bitmap Guard runner ZIP to the per-graph recorded hashes. It emits the rows of Tables II and VII plus a JSON file with five paired ratios for each contrast, archive and CSV hashes, and the Table VII sensitivity analysis restricted to graphs with at least one second of median ST time in both frameworks. The MBET-family summary includes whole-process wall-time ratios from the same runs. The original pure records identify the runner ZIP. New replay manifests also identify each mode's binary.
+
+Append `--evidence-zip MBE_Archived_Table_II_VII.zip` to export the verified
+CSV files and summaries with a SHA-256 inventory. This snapshot contains
+measurement records and checksums. Its README gives the command that
+regenerates the tables using the recorded historical runner hash.
+
+## Regenerating Tables III–VI from native checkpoints
+
+Use a dedicated output directory and choose a logical CPU available to the
+process. The runner executes the guided, Double representation, Candidate
+Tree, and Result Tree experiments in sequence. It applies the recorded mode
+definitions and five blocks on each of the thirteen canonical graph inputs.
+
+```sh
+dir=outputs/icde_eab_state_ablations
+bash scripts/run_state_and_guidance.sh 0 "$dir" 2>&1 | tee state-and-guidance.log
+```
+
+The runner stages a verified source bundle under the output directory and
+keeps the native binaries, reports, and checkpoints there. Repeat with the
+same CPU, runtime environment, and directory to reuse completed blocks.
+The runner checks its saved `protocol.txt` before resuming. A changed run
+configuration uses a new output directory so the original records stay available.
+
+Rebuild a specific table without rerunning the benchmark by passing its
+Roman numeral in lowercase:
+
+```sh
+python3 scripts/summarize_state_and_guidance.py "$dir/framework_ablations" vi "$dir"
+```
+
+The summarizer checks graph identities, complete blocks, positive times,
+reference counts, and compatible fingerprints. Table V additionally checks
+branch equality for each matched Vector/Compact comparison. Its memory cells
+are medians of the peak RSS values for the ten ST runs of each build. The
+JSON files include the raw paired ratios and checkpoint hashes, and Table V
+also records paired wall-time ratios. Each LaTeX file contains the generated
+table rows.
+
+## Regenerating the unguided ET table
+
+Run the thirteen-graph campaign and keep each CSV with its run manifest. Use
+the following commands from the repository root. Choose an available CPU
+if CPU 0 is outside the process's affinity mask.
+
+```sh
+taskset -c 0 env MBE2_OPT=O3 OUT_DIR=outputs/icde_eab_pure_13 bash scripts/run_pure_13.sh
+python3 scripts/summarize_pure_csv.py outputs/icde_eab_pure_13 \
+  --json outputs/icde_eab_pure_13/summary.json \
+  --latex outputs/icde_eab_pure_13/table_rows.tex
+```
+
+The summarizer checks the runner and input hashes, the CSV hash, matching
+execution settings across graphs, output fingerprints, and the reference
+biclique counts from Table I. The JSON stores all five paired ratios per
+contrast. The table uses the median ratio within each graph and the
+geometric mean of those ratios across graphs. The direct ET2/ET1 contrast
+is computed from the two times in each block.
+
+The current pure runner source checkpoints complete paired blocks in
+`.csv.checkpoint.json`. Resume with the same inputs, runner ZIP, mode
+order, seed, and execution settings. The final CSV and manifest are
+published after all blocks pass validation. Repeated publication uses
+the saved blocks if a process exits between the two final file writes.
+Run the interruption regressions in Linux or WSL with
+`python3 -m unittest discover -s tests -p test_pure_resume.py`.
+
+### Double eligibility-scan ablation
+
+Double ST in the original pure campaign evaluates the degree-two eligibility
+predicate before continuing ordinary recursion. The auxiliary `double-gate`
+matrix compares no scan, a degree-one scan, and a degree-two scan with solving
+disabled in all three modes. The ET1 and ET2 modes keep classic pivots and
+per-result fingerprints, and provide paired comparisons against the same
+scan threshold. The runner checks equal branch counts and zero terminal
+calls in the three ST controls.
+
+Run the supplemental matrix separately from the primary timing campaign.
+YouTube is a short case, GitHub has a large output set, and DBLP is a large,
+sparse input with comparatively short search time. Retain the derived runner
+ZIP with its raw records.
+
+```sh
+dir=outputs/icde_eab_double_gate
+python3 scripts/package_pure_gate.py "$dir/MBE_PURE_ET_GATE.zip"
+ulimit -s 262144
+for graph in youtube github dblp; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$dir/MBE_PURE_ET_GATE.zip" all "data_clean/$graph.txt" \
+    --modes double-gate --repeats 5 --out "$dir/$graph.csv" --resume
+done
+python3 scripts/summarize_double_gate.py "$dir" --json "$dir/summary.json"
+```

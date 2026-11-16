@@ -11,8 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip"
 EXPECTED_SHA256 = "e0583c48ed998b3e127cdaaff873e6e99a0234e0f932da9c33f789cf47f0ac4b"
-OUTPUT = ROOT / "outputs/paper_suite"
-SUITE = OUTPUT / "framework_ablations"
+DEFAULT_OUTPUT = ROOT / "outputs/paper_suite"
 REQUIRED = [
     "run_experiments.sh",
     "V63_MBET_CORE_SELECT/v63_run.py",
@@ -36,7 +35,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true",
                         help="check archive without extracting anything")
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
+    output = args.output_dir.resolve()
+    suite = output / "framework_ablations"
 
     if not BUNDLE.is_file():
         raise SystemExit(
@@ -62,13 +64,13 @@ def main():
         print("PASS: pinned source archive and required campaign files")
         if args.check_only:
             return 0
-        OUTPUT.mkdir(parents=True, exist_ok=True)
-        archive.extractall(OUTPUT)
+        output.mkdir(parents=True, exist_ok=True)
+        archive.extractall(output)
 
     data = ROOT / "data_clean"
     if not data.is_dir():
         raise SystemExit("Restore inputs first: python3 scripts/prepare_data.py")
-    link = SUITE / "data_clean"
+    link = suite / "data_clean"
     if link.is_symlink():
         if link.resolve() != data.resolve():
             raise SystemExit("Existing data_clean symlink points elsewhere.")
@@ -77,7 +79,7 @@ def main():
     else:
         link.symlink_to(data.resolve(), target_is_directory=True)
 
-    print("PASS: source suite staged at", SUITE)
+    print("PASS: source suite staged at", suite)
     print("Next: bash scripts/run_paper_ablations.sh check-source")
     return 0
 

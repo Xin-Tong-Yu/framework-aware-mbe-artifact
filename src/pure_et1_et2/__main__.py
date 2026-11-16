@@ -11,6 +11,7 @@ import fcntl
 from functools import lru_cache
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -121,6 +122,11 @@ PURE_1V2_MATRIX=['single_st','single_et1','single_et2',
                  'double_compact_st','double_compact_et1','double_compact_et2']
 PURE_1_MATRIX=['single_st','single_et1','double_compact_st','double_compact_et1']
 PURE_2_MATRIX=['single_st','single_et2','double_compact_st','double_compact_et2']
+# Measure the eligibility scan with direct solving disabled and classic pivots fixed.
+double('double_compact_st_no_gate', skip_et_gate=True)
+double('double_compact_st_gate1', targetdegree=1)
+DOUBLE_GATE_CONTROLS = ('double_compact_st_no_gate', 'double_compact_st_gate1', 'double_compact_st')
+DOUBLE_GATE_MATRIX = [*DOUBLE_GATE_CONTROLS, 'double_compact_et1', 'double_compact_et2']
 # Independent guidance-inclusive study, not a pure biplex threshold ablation.
 GUIDED_1V2_MATRIX=['single_st','single_et1','single_et1_tg1',
                    'single_et2','single_et2_tg2',
@@ -249,6 +255,7 @@ def double_flags(d):
     if d['adjacency']=='hybrid':
         flags+=['-DIPS_ST_V15_HASHLESS=1','-DIPS_ST_V15_ROW_CACHE=1']
     if not d['et']: flags+=['-DIPS_DISABLE_ET=1']
+    if d.get('skip_et_gate'): flags+=['-DIPS_DISABLE_ET_GATE=1']
     if not d['tg']: flags+=['-DIPS_CLASSIC_PIVOT=1']
     if d.get('tgfast'): flags+=['-DIPS_TG2_FAST_OBSTRUCTION=1']
     if d.get('tgcache'): flags+=['-DIPS_TG2_CACHED_MISSING=1']
@@ -531,6 +538,7 @@ def all_matrix(args,cache,archive):
     elif args.modes=='pure':modes=PURE_1V2_MATRIX
     elif args.modes=='pure1':modes=PURE_1_MATRIX
     elif args.modes=='pure2':modes=PURE_2_MATRIX
+    elif args.modes=='double-gate':modes=DOUBLE_GATE_MATRIX
     elif args.modes=='guided':modes=GUIDED_1V2_MATRIX
     elif args.modes=='biplex':modes=BIPLEX_COMPARE_MATRIX
     elif args.modes=='pair':modes=['double_compact_et1_tg1','double_compact_et2_tg2']
@@ -538,6 +546,8 @@ def all_matrix(args,cache,archive):
     else:modes=args.modes.split(',')
     for m in modes:
         if m not in MODES:die('Unknown selected mode '+m)
+    if len(set(modes)) != len(modes):
+        die('Each selected mode must be unique')
     out = Path(args.out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.with_suffix(out.suffix + '.lock').open('a') as lock:
@@ -545,64 +555,146 @@ def all_matrix(args,cache,archive):
         run_matrix(args, cache, archive, modes, out)
 
 
+MATRIX_FIELDS = (
+    'graph', 'block', 'mode', 'kind', 'time_s', 'wall_s', 'count', 'et', 'tg',
+    'et_attempt', 'et_hit', 'et_degree2_hit', 'fingerprint', 'rss_mib',
+    'tg2_score_states', 'tg2_score_changes', 'tg2_cache_used', 'tg2_cache_fallback',
+    'branch_calls', 'et_output_count', 'et_gate_ms', 'et_setup_ms', 'et_build_ms',
+    'et_decompose_ms', 'et_generate_ms', 'et_gate_calls', 'et_terminal_calls',
+    'et_candidate_sum', 'et_max_candidate', 'et_pattern_components',
+)
+
+
+def block_signature(rows, graph, order, block):
+    if len(rows) != len(order):
+        die(f'Block {block}: incomplete mode coverage')
+    counts = set()
+    groups = {}
+    for row, mode in zip(rows, order):
+        kind, mode_flags = MODES[mode]
+        if (set(row) != set(MATRIX_FIELDS) or row['block'] != block or row['graph'] != graph
+                or row['mode'] != mode or row['kind'] != kind):
+            die(f'Block {block}: invalid row for {mode}')
+        counts.add(int(row['count']))
+        if not re.fullmatch(r'[0-9]+\|[0-9]+', row['fingerprint']):
+            die(f'Block {block}: missing or invalid fingerprint for {mode}')
+        search_s, wall_s = (float(row[field]) for field in ('time_s', 'wall_s'))
+        if not math.isfinite(search_s) or not math.isfinite(wall_s) or search_s < 0 or wall_s <= 0:
+            die(f'Block {block}: invalid duration for {mode}')
+        group = (kind, mode_flags.get('cr', False))
+        if groups.setdefault(group, row['fingerprint']) != row['fingerprint']:
+            die(f'Block {block}: fingerprints differ within {group}')
+    if len(counts) != 1 or min(counts) < 0:
+        die(f'Block {block}: inconsistent biclique counts')
+    return next(iter(counts)), groups
+
+
+def checkpoint_digest(blocks):
+    payload = json.dumps(blocks, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def load_matrix_checkpoint(checkpoint, params):
+    try:
+        saved = json.loads(checkpoint.read_text(encoding='utf-8'))
+        blocks = saved['blocks']
+        if (saved['parameters'] != params or not isinstance(blocks, list)
+                or len(blocks) > params['repeats'] or saved['blocks_sha256'] != checkpoint_digest(blocks)):
+            raise ValueError('run identity or checkpoint hash differs')
+    except (ValueError, KeyError, TypeError) as error:
+        die(f'{checkpoint}: {error}; use the matching configuration or a new output path')
+    return blocks
+
+
+def save_matrix_checkpoint(checkpoint, params, blocks):
+    snapshot = dict(parameters=params, blocks=blocks, blocks_sha256=checkpoint_digest(blocks))
+    with tempfile.TemporaryDirectory(dir=checkpoint.parent) as temp:
+        pending = Path(temp) / checkpoint.name
+        with pending.open('w', encoding='utf-8') as stream:
+            json.dump(snapshot, stream, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        pending.replace(checkpoint)
+
+
 def run_matrix(args, cache, archive, modes, out):
     graph = Path(args.graph).resolve()
+    graph_name = Path(args.graph).name
     graph_sha = sha256(graph)
     executables = {mode: build(mode, cache, archive) for mode in modes}
-    params = dict(graph=graph.name, input_sha256=graph_sha, runner_sha256=sha256(archive),
+    params = dict(graph=graph_name, input_sha256=graph_sha, runner_sha256=sha256(archive),
                   executables={mode: sha256(exe) for mode, exe in executables.items()},
-                  modes=modes, repeats=args.repeats, seed=args.seed, timeout=args.timeout,
+                  modes=modes, matrix=args.modes, repeats=args.repeats, seed=args.seed, timeout=args.timeout,
                   min_left=args.min_left, min_right=args.min_right, build_profile=BUILD_PROFILE,
                   compiler=list(compiler_identity()), host=list(platform.uname()),
                   affinity=sorted(os.sched_getaffinity(0)),
                   stack=list(resource.getrlimit(resource.RLIMIT_STACK)))
     manifest = out.with_suffix(out.suffix + '.manifest.json')
-    if args.resume and out.exists():
+    checkpoint = out.with_suffix(out.suffix + '.checkpoint.json')
+    blocks = []
+    if args.resume and checkpoint.exists():
+        blocks = load_matrix_checkpoint(checkpoint, params)
+    elif args.resume and out.exists():
         expected = dict(parameters=params, csv_sha256=sha256(out))
         if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')) != expected:
             die(f'{out}: run configuration changed, manifest missing, or CSV altered; use a new output path')
         print(f'[SKIP] {out}: complete matrix matches the current run configuration', flush=True)
         return
+    elif not args.resume:
+        checkpoint.unlink(missing_ok=True)
 
     print(f'[MATRIX] {len(modes)} modes, {args.repeats} paired blocks; times exclude build/preprocess',flush=True)
-    paths=graph_variants(graph,cache,graph_sha)
-    rows=[]
-    rng=random.Random(args.seed)
-    for block in range(args.repeats):
-        order=modes[:];rng.shuffle(order)
-        block_counts=[]
-        per_framework={}
-        for mode in order:
-            row,_=execute(mode,cache,archive,args.graph,args.min_left,args.min_right,args.timeout,
-                          quiet=True,precomputed=paths,exe=executables[mode])
-            row['block']=block+1;rows.append(row)
-            block_counts.append(row['count'])
-            kind=row['kind'];fp=row['fingerprint']
-            # Within a frame, checksums are controlled by CR flags; full per
-            # result count must always agree across *all* 2-biplex variants.
-            per_framework.setdefault((kind,MODES[mode][1].get('cr',False)),[]).append((mode,fp))
-            print('[RUN]',block+1,mode,'search_s='+str(row['time_s']),
-                  'count='+row['count'],'ET_hit='+row['et_hit'],flush=True)
-        if len(set(block_counts))!=1:
-            die('Output counts differ across the matrix in block '+str(block+1)+': '+str(block_counts))
-        for group in per_framework.values():
-            # Caution: any change in traversal ordering must still use
-            # commutative fingerprints, which these two engines provide.
-            vals={v for _,v in group}
-            if len(vals)>1:
-                die('Fingerprint mismatch in block '+str(block+1)+': '+str(group))
+    orders = []
+    rng = random.Random(args.seed)
+    for _ in range(args.repeats):
+        order = list(modes)
+        rng.shuffle(order)
+        orders.append(order)
+
+    reference = None
+    reused = len(blocks)
+    paths = None
+    for block, order in enumerate(orders, 1):
+        if block <= reused:
+            rows = blocks[block - 1]
+        else:
+            if paths is None:
+                paths = graph_variants(graph, cache, graph_sha)
+            rows = []
+            for mode in order:
+                row, _ = execute(mode, cache, archive, args.graph, args.min_left, args.min_right,
+                                 args.timeout, quiet=True, precomputed=paths, exe=executables[mode])
+                row['block'] = block
+                rows.append(row)
+                print(f'[RUN] {block} {mode} search_s={row["time_s"]} count={row["count"]} '
+                      f'ET_hit={row["et_hit"]}', flush=True)
+        signature = block_signature(rows, graph_name, order, block)
+        if reference is None:
+            reference = signature
+        elif signature != reference:
+            die(f'Block {block}: output count or fingerprint differs from the first block')
+        if args.modes == 'double-gate':
+            controls = {row['mode']: row for row in rows if row['mode'] in DOUBLE_GATE_CONTROLS}
+            verify_gate_controls(controls, block)
+        if block <= reused:
+            print(f'[SKIP_BLOCK] {block}: complete paired block verified', flush=True)
+        else:
+            blocks.append(rows)
+            save_matrix_checkpoint(checkpoint, params, blocks)
+
+    rows = [row for block in blocks for row in block]
     with tempfile.TemporaryDirectory(dir=out.parent) as temp:
         csv_path = Path(temp) / out.name
         manifest_path = Path(temp) / manifest.name
         with csv_path.open('w', newline='') as f:
-            writer=csv.DictWriter(f,fieldnames=['graph','block','mode','kind','time_s','wall_s',
-                          'count','et','tg','et_attempt','et_hit','et_degree2_hit','fingerprint','rss_mib','tg2_score_states','tg2_score_changes','tg2_cache_used','tg2_cache_fallback','branch_calls','et_output_count', 'et_gate_ms','et_setup_ms','et_build_ms', 'et_decompose_ms','et_generate_ms','et_gate_calls','et_terminal_calls','et_candidate_sum','et_max_candidate','et_pattern_components'])
+            writer = csv.DictWriter(f, fieldnames=MATRIX_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
         manifest_path.write_text(json.dumps(dict(parameters=params, csv_sha256=sha256(csv_path)),
                                             indent=2, sort_keys=True) + '\n', encoding='utf-8')
         csv_path.replace(out)
         manifest_path.replace(manifest)
+    checkpoint.unlink(missing_ok=True)
     print('[CSV]',out)
     print('Mode\tmedian_search_s\tmedian_wall_s\tcount\tmedian_peak_RSS_MiB')
     for mode in modes:
@@ -610,6 +702,16 @@ def run_matrix(args, cache, archive, modes, out):
         s=[float(v['time_s']) for v in rr if v['time_s']]
         print(mode,statistics.median(s) if s else 'NA',round(statistics.median(v['wall_s'] for v in rr),6),rr[0]['count'],(statistics.median(float(v['rss_mib']) for v in rr if v['rss_mib']) if any(v['rss_mib'] for v in rr) else 'NA'),sep='\t')
     print('[CAUTION] Search timer boundaries differ between Single and Double; DO NOT rank across frameworks by search_s.')
+
+def verify_gate_controls(rows, block):
+    off, degree1, degree2 = (rows[mode] for mode in DOUBLE_GATE_CONTROLS)
+    branch_counts = {int(row["branch_calls"]) for row in rows.values()}
+    if len(branch_counts) != 1 or any(int(row["et_hit"]) != 0 for row in rows.values()):
+        die(f"Block {block}: ST gate controls changed branches or ran a terminal")
+    off_passes, degree1_passes, degree2_passes = (int(row["et_attempt"]) for row in (off, degree1, degree2))
+    if off_passes != 0 or degree1_passes > degree2_passes:
+        die(f"Block {block}: inconsistent gate-pass counters")
+
 
 def main():
     argv=sys.argv[1:]
@@ -657,9 +759,9 @@ def main():
         parser.add_argument('--timeout',type=int,default=3600)
         parser.add_argument('--seed',type=int,default=71213)
         parser.add_argument('--out',default='mbe_2biplex_results.csv')
-        parser.add_argument('--resume', action='store_true', help='Reuse a complete CSV only if its run configuration matches')
+        parser.add_argument('--resume', action='store_true', help='Reuse validated complete blocks with matching run settings')
         parser.add_argument('--modes',default=('youtube' if command_name=='youtube' else 'main'),
-                            help='pure|pure1|pure2|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
+                            help='pure|pure1|pure2|double-gate|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
         a=parser.parse_args(argv[1:])
         if a.repeats<1:die('--repeats must be >= 1')
         if command_name=='youtube':

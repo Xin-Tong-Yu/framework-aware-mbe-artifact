@@ -13,6 +13,9 @@
 #ifndef IPS_ET_TARGET_DEGREE
 #define IPS_ET_TARGET_DEGREE 2
 #endif
+#if defined(IPS_DISABLE_ET_GATE) && !defined(IPS_DISABLE_ET)
+#error "The terminal gate can be disabled only when early termination is off"
+#endif
 static_assert(IPS_ET_TARGET_DEGREE == 1 || IPS_ET_TARGET_DEGREE == 2, "terminal degree must be 1 or 2");
 
 class IPS_t {
@@ -663,8 +666,8 @@ private:
             return;
         }
 
-        // Only the degree-two 2-biplex terminal is used in this experiment.
-        // The old matching terminal / binomial counter is unreachable here.
+        // The historical ST control still measures eligibility without solving.
+#ifndef IPS_DISABLE_ET_GATE
 #ifdef IPS_ET_PROFILE
         const auto pg0=std::chrono::steady_clock::now();
         ++profGateCalls;
@@ -695,6 +698,7 @@ private:
         if (!terminalEligible)
             profGateNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now()-pg0).count();
+#endif
 #endif
 
         /*

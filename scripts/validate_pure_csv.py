@@ -25,7 +25,6 @@ REQUIRED = {"graph", "block", "mode", "kind", "time_s", "count", "fingerprint", 
 
 
 def validate(path, expected_graph=None):
-    errors = []
     try:
         with path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
@@ -35,6 +34,13 @@ def validate(path, expected_graph=None):
     except (OSError, UnicodeError, csv.Error) as exc:
         return [str(exc)]
 
+    return validate_rows(rows, expected_graph)
+
+
+def validate_rows(rows, expected_graph=None):
+    if rows and not REQUIRED.issubset(rows[0]):
+        return ["missing required CSV columns: " + ", ".join(sorted(REQUIRED - rows[0].keys()))]
+    errors = []
     if len(rows) != 30:
         errors.append(f"expected 30 rows, found {len(rows)}")
     seen = set()

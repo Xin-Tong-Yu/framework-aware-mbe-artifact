@@ -59,9 +59,10 @@ For a native small-graph oracle comparison in the expanded suite:
 
 ```bash
 bash scripts/run_paper_ablations.sh oracle 20
+bash scripts/run_paper_ablations.sh prefix-oracle
 ```
 
-The `oracle` launcher compiles the required native executables on first use, **before** the oracle's per-mode execution timeout begins.
+The launchers prepare their native executables before the oracle's per-mode timeout. The prefix oracle checks the Single matching and nonmatching deferral cases against an exhaustive closure oracle and verifies complete output after a forced solver rejection.
 
 ## 3. Run the four-mode MBET comparison
 
@@ -105,14 +106,21 @@ For the thirteen-graph campaign:
 bash scripts/run_pure_13.sh
 ```
 
-The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher skips a graph only when its CSV and `.csv.manifest.json` match the current input, binaries, and execution settings. It also checks six-mode, five-block coverage and agreement of counts and fingerprints. Use a new output directory to keep older CSVs available for inspection.
+The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher skips a graph only when its CSV and `.csv.manifest.json` match the current input, binaries, and execution settings. It also checks six-mode, five-block coverage and agreement of counts and fingerprints. The updated runner saves each validated block in `.csv.checkpoint.json` until the final CSV and manifest are published. Keep that checkpoint to resume with the same runner ZIP and settings. Use a new output directory to retain results from a different configuration.
 
 ## 5. Run the other manuscript ablations
 
-The commands below use the pinned source bundle installed in Step 2. Each invokes its original study driver and writes its own generated outputs inside the ignored experiment workspace.
+The guided, Double state-layout, Candidate Tree, and Result Tree experiments can run in sequence on a selected logical CPU. The launcher validates each checkpoint and writes the rows for Tables III–VI.
 
 ```bash
-bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200
+bash scripts/run_state_and_guidance.sh 0 outputs/state_and_guidance
+```
+
+The pinned source bundle also provides separate study drivers.
+
+```bash
+bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200 \
+  --modes st_only v63_inline_st v63_core_st v63_core_d
 bash scripts/run_paper_ablations.sh result-cr --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh double-2x2 --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh six-mode --runs 5 --timeout 1200
@@ -127,5 +135,5 @@ See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for each experiment's sourc
 - Repeat counts and command-line switches are explicit in the commands and underlying launchers. The C++ sources and native build definitions are included, so experiments do not depend on precompiled binaries.
 - The data archive SHA-256, each graph's SHA-256, and required source-bundle SHA-256 are pinned in the repository.
 - Report elapsed times, compiler settings, CPU, memory limits, and mode configurations together. Timings will vary with hardware and operating conditions.
-- Raw experimental CSVs and logs are created during reproduction under Git-ignored output locations; no historical development results are shipped with this artifact.
+- Replays write raw CSVs and logs under Git-ignored output locations. The separate [measurement snapshot for Tables II and VII](EXPERIMENT_COVERAGE.md#rebuilding-tables-ii-and-vii-from-the-original-measurements) rebuilds the reported values from original CSVs without running enumeration.
 - The source modules adapt algorithms from ICDE 2024 MBET and SIGMOD 2026 IPS. See [SOURCE_ATTRIBUTION.md](SOURCE_ATTRIBUTION.md) for provenance and third-party reuse information.

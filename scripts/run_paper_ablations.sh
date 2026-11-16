@@ -10,6 +10,7 @@ Usage: bash scripts/run_paper_ablations.sh COMMAND [OPTIONS]
 Commands:
   check-source
   oracle [N=20]
+  prefix-oracle
   build-core
   single-baseline
   candidate
@@ -33,9 +34,13 @@ SUITE="$ROOT/outputs/paper_suite/framework_ablations"
 
 # The native oracle runner has a short per-mode execution timeout. Compile all
 # required executables first so its timeout measures enumeration, not cold builds.
-if [[ "$cmd" == "oracle" ]]; then
+if [[ "$cmd" == "oracle" || "$cmd" == "prefix-oracle" ]]; then
+  required=(one_core)
+  if [[ "$cmd" == "oracle" ]]; then
+    required+=(one_inline two_st two_st_hybrid two_et two_et_tg two_et_tg_compact)
+  fi
   need_build=0
-  for exe in one_core one_inline two_st two_st_hybrid two_et two_et_tg two_et_tg_compact; do
+  for exe in "${required[@]}"; do
     if [[ ! -x "$SUITE/MBE_FAST_FOUR_MODES/bin/$exe" ]]; then
       need_build=1
       break
@@ -45,6 +50,10 @@ if [[ "$cmd" == "oracle" ]]; then
     echo "[ORACLE_BUILD] Preparing native executables before timed checks"
     bash "$SUITE/MBE_FAST_FOUR_MODES/build.sh"
   fi
+fi
+
+if [[ "$cmd" == "prefix-oracle" ]]; then
+  exec python3 scripts/verify_single_prefix.py "$SUITE/MBE_FAST_FOUR_MODES/run.sh"
 fi
 
 exec bash "$SUITE/run_experiments.sh" "$@"
