@@ -108,6 +108,12 @@ and the driver continues with the remaining graphs. Resuming with
 the unresolved blocks again. The installer stages the revised driver over the
 pinned archive. Earlier checkpoints remain compatible when their executable,
 input, and run metadata match.
+For Table III, the driver records the CPU, effective stack limit, timeout,
+block count, mode flags, and randomization settings. It uses a monotonic clock
+for the paired anchors and retains the requested stack allowance when it is
+already at least 64 MiB. Earlier checkpoints remain readable by the table
+summarizer. New measurements use a separate campaign directory when the older
+checkpoint lacks the timing metadata required for resumption.
 
 Rebuild a specific table without rerunning the benchmark by passing its
 Roman numeral in lowercase:

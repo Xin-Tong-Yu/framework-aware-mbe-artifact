@@ -10,7 +10,10 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip"
-GUIDANCE_BENCH = ROOT / "src/paper_ablations/termination_guidance/bench.py"
+REVISED_DRIVERS = {
+    "MBE_CORRECTED_13DATA/bench.py": ROOT / "src/paper_ablations/termination_guidance/bench.py",
+    "V63_MBET_CORE_SELECT/v63_run.py": ROOT / "src/paper_ablations/single_candidate_tree/v63_run.py",
+}
 EXPECTED_SHA256 = "e0583c48ed998b3e127cdaaff873e6e99a0234e0f932da9c33f789cf47f0ac4b"
 DEFAULT_OUTPUT = ROOT / "outputs/paper_suite"
 REQUIRED = [
@@ -48,8 +51,9 @@ def main():
         )
     if digest(BUNDLE) != EXPECTED_SHA256:
         raise SystemExit("Source-bundle SHA-256 does not match the pinned release.")
-    if not GUIDANCE_BENCH.is_file():
-        raise SystemExit("Missing the revised six-mode benchmark driver: " + str(GUIDANCE_BENCH))
+    for driver in REVISED_DRIVERS.values():
+        if not driver.is_file():
+            raise SystemExit("Missing revised benchmark driver: " + str(driver))
     with zipfile.ZipFile(BUNDLE) as archive:
         names = [info.filename for info in archive.infolist() if not info.is_dir()]
         if not names or not all(name.startswith("framework_ablations/") for name in names):
@@ -69,7 +73,8 @@ def main():
             return 0
         output.mkdir(parents=True, exist_ok=True)
         archive.extractall(output)
-    shutil.copyfile(GUIDANCE_BENCH, suite / "MBE_CORRECTED_13DATA/bench.py")
+    for target, source in REVISED_DRIVERS.items():
+        shutil.copyfile(source, suite / target)
 
     data = ROOT / "data_clean"
     if not data.is_dir():
