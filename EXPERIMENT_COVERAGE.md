@@ -89,13 +89,15 @@ script to reproduce the tables from the snapshot. Each CSV value summarizes
 within-graph paired blocks. The native drivers below collect independent
 per-run records.
 
-Compare the original medians with a completed five-block replay of Table IV
-or VI using `scripts/compare_native_replay.py`. Pass the archive or its CSV
-entry, the replay's `framework_ablations` directory, the lowercase table
-number, and a JSON output path. An explicit `--graphs` subset uses only
-those graphs for both geometric means. The report gives the two ratios and
-their speedup difference in percentage points. It records the replay input
-and binary identities alongside the archived source hash.
+Compare an original checkpoint directory with a five-block replay of Tables
+III–VI using `scripts/compare_native_replay.py`. Pass the original directory,
+the replay's `framework_ablations` directory, the lowercase table number, and
+a JSON output path. For Tables IV and VI, the original aggregate ZIP or its
+CSV entry is also accepted. Use `--graphs` to compare a subset with complete
+replay blocks. Both geometric means use that same subset. The report gives
+the speedup differences in percentage points and records input and binary
+identities. A comparison of native checkpoints also records whether each
+binary SHA-256 agrees across runs.
 
 ## Regenerating Tables III–VI from native checkpoints
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare archived paired medians with independently verified native replays."""
+"""Compare independently validated native replays with original measurements."""
 
 import argparse
 import json
@@ -18,11 +18,24 @@ def ratio_change(archived, replayed):
             "speedup_shift_percentage_points": 100 * (replayed - archived)}
 
 
+def load_archive(path, table, stats):
+    if path.is_dir():
+        original = summarize(path, table, stats, 5)
+        return {"evidence_type": "archived_native_checkpoints",
+                "source": {"checkpoint_sha256": original["checkpoint_sha256"],
+                           "binaries": original["binaries"], "blocks_per_graph": original["runs"]},
+                f"table_{table}": original}
+    if table not in ARCHIVE_COLUMNS:
+        raise ValueError(f"Table {table.upper()} requires the original checkpoint directory")
+    return rebuild(load_source(path))
+
+
 def compare(archive, replay, table):
     historical = archive[f"table_{table}"]
     columns = tuple(historical["columns"])
     if tuple(replay["columns"]) != columns:
         raise ValueError("archive and replay contrasts differ")
+    has_original_runs = "checkpoint_sha256" in historical
     by_graph = {graph["graph"]: graph for graph in historical["graphs"]}
     graphs = []
     for observed in replay["graphs"]:
@@ -33,6 +46,10 @@ def compare(archive, replay, table):
                   "replayed_input_sha256": observed["input_sha256"],
                   "contrasts": {column: ratio_change(before, after) for column, before, after in
                                 zip(columns, original["median_ratios"], observed["median_ratios"])}}
+        if has_original_runs:
+            if (original["input_sha256"], original["count"]) != (observed["input_sha256"], observed["count"]):
+                raise ValueError(f"{observed['graph']}: original input or reference count differs")
+            result["archived_input_sha256"] = original["input_sha256"]
         if table == "vi":
             result["direct_guidance"] = {
                 framework: ratio_change(original["direct_guidance"][framework]["median_ratio"],
@@ -53,6 +70,9 @@ def compare(archive, replay, table):
               "archived_graphs": len(by_graph), "compared_graphs": len(graphs), "graphs": graphs,
               "geometric_means_over_compared_graphs": {column: paired_gm("contrasts", column)
                                                        for column in columns}}
+    if has_original_runs:
+        output["binary_sha256_matches"] = {mode: identity == historical["binaries"][mode]
+                                          for mode, identity in replay["binaries"].items()}
     if table == "vi":
         output["direct_guidance_geometric_means_over_compared_graphs"] = {
             framework: paired_gm("direct_guidance", framework) for framework in GUIDANCE_COLUMNS
@@ -63,18 +83,19 @@ def compare(archive, replay, table):
 def main():
     stats = {row["graph"]: row for row in records(ROOT / "data/GRAPH_STATISTICS.csv")}
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("archive", type=Path, help="Original aggregate ZIP or its exact CSV entry")
+    parser.add_argument("archive", type=Path, help="Original checkpoint directory or aggregate ZIP/CSV")
     parser.add_argument("suite", type=Path, help="Native replay framework_ablations directory")
-    parser.add_argument("table", choices=ARCHIVE_COLUMNS)
+    parser.add_argument("table", choices=CHECKPOINTS)
     parser.add_argument("output", type=Path, help="Comparison JSON path")
     parser.add_argument("--graphs", nargs="+", choices=stats, help="Compare only these fully replayed graphs")
     args = parser.parse_args()
-    inputs = (args.archive, args.suite / CHECKPOINTS[args.table])
+    archive_input = args.archive / CHECKPOINTS[args.table] if args.archive.is_dir() else args.archive
+    inputs = (archive_input, args.suite / CHECKPOINTS[args.table])
     if args.output.resolve() in {path.resolve() for path in inputs}:
         parser.error("Use a separate output path for the comparison report")
     selected = set(args.graphs or stats)
     try:
-        archived = rebuild(load_source(args.archive))
+        archived = load_archive(args.archive, args.table, list(stats.values()))
         replay = summarize(args.suite, args.table, [stat for name, stat in stats.items() if name in selected], 5)
         result = compare(archived, replay, args.table)
         args.output.parent.mkdir(parents=True, exist_ok=True)
