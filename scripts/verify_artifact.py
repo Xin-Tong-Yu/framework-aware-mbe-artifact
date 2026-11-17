@@ -56,6 +56,7 @@ def main():
                     raise ValueError('header mismatch with graph statistics')
                 if args.full_scan:
                     count = 0
+                    candidate_hash = hashlib.sha256()
                     for lineno, line in enumerate(f, start=2):
                         parts = line.split()
                         if len(parts) != 2:
@@ -63,9 +64,12 @@ def main():
                         l, r = map(int, parts)
                         if not (0 <= l < nl and 0 <= r < nr):
                             raise ValueError('out-of-range edge at line ' + str(lineno))
+                        candidate_hash.update(f'{l}\t{r}\n'.encode('ascii'))
                         count += 1
                     if count != ne:
                         raise ValueError(f'expected {ne} edges, observed {count}')
+                    if candidate_hash.hexdigest() != record['candidate_edge_list_sha256']:
+                        raise ValueError('normalized Candidate Tree input digest mismatch')
         except (OSError, ValueError, KeyError) as e:
             problems.append(f'invalid graph {name}: {e}')
             continue

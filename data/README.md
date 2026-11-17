@@ -2,7 +2,7 @@
 
 The dataset archive contains 13 simple bipartite graphs derived from KONECT records. Each file begins with a three-integer graph-size header `nL nR m`. Subsequent lines contain left/right vertex ID pairs. [KONECT](https://konect.cc/) · [Source attribution](../SOURCE_ATTRIBUTION.md)
 
-The complete canonical archive is split into six pieces in `parts/` because browser uploads limit file size; each part is at most 20 MiB. `ARCHIVE_PARTS.json` records the exact part sizes and SHA-256 values, and `COLLECTED_INPUT_SHA256.csv` records the SHA-256 of each extracted graph. `GRAPH_STATISTICS.csv` records vertex and edge statistics.
+The complete canonical archive is split into six pieces in `parts/` because browser uploads limit file size. Each part is at most 20 MiB. `ARCHIVE_PARTS.json` records the part sizes and SHA-256 values. `COLLECTED_INPUT_SHA256.csv` records both the SHA-256 of each extracted graph and the Candidate Tree edge-list digest after dropping the header and writing each ordered edge as two decimal integers separated by a tab and ending in LF. `python3 scripts/verify_artifact.py --full-scan` recomputes both digests. `GRAPH_STATISTICS.csv` records vertex and edge statistics.
 
 Run the following commands from the repository root.
 

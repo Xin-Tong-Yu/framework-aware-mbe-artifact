@@ -11,7 +11,7 @@ import re
 from statistics import geometric_mean, median
 import sys
 
-from summarize_pure_csv import ROOT, records, sha256, speedup
+from summarize_pure_csv import ROOT, records, speedup
 
 
 CANDIDATE = ("v63_inline_st", "v63_core_st", "v63_core_d")
@@ -51,20 +51,6 @@ def require_digest(value):
     if not re.fullmatch(r"[0-9a-f]{64}", value):
         raise ValueError("invalid binary SHA-256")
     return value
-
-
-def normalized_candidate_hash(graph, canonical_hash):
-    if sha256(graph) != canonical_hash:
-        raise ValueError("canonical graph SHA-256 mismatch")
-    digest = hashlib.sha256()
-    with graph.open(encoding="utf-8-sig") as stream:
-        header = next(stream).split()
-        if len(header) != 3:
-            raise ValueError("expected the canonical three-column graph header")
-        for line in stream:
-            left, right = map(int, line.split())
-            digest.update(f"{left}\t{right}\n".encode("ascii"))
-    return digest.hexdigest()
 
 
 def check_fingerprint(group, signature, expected_count, fingerprints):
@@ -190,7 +176,8 @@ def other_blocks(raw, table, runs, count):
 
     if table == "v":
         return paired, {"median_peak_rss_mib": {mode: median(values) for mode, values in rss.items()},
-                        "block_wall_ratios": wall}
+                        "block_wall_ratios": wall,
+                        "median_wall_ratios": [median(values) for values in zip(*wall)]}
     if table == "vi":
         return paired, {
             "direct_guidance": {framework: {"block_ratios": values, "median_ratio": median(values)}
@@ -242,8 +229,7 @@ def summarize(suite, table, stats, runs):
         try:
             if table == "iii":
                 entry = checkpoints[graph]
-                expected = normalized_candidate_hash(ROOT / "data_clean" / identity["file_name"],
-                                                     identity["sha256"])
+                expected = identity["candidate_edge_list_sha256"]
                 if entry["graph_sha256"] != expected:
                     raise ValueError("normalized Candidate Tree input does not match")
                 paired, extra = candidate_blocks(entry, document["modes"], runs, count)
@@ -267,6 +253,11 @@ def summarize(suite, table, stats, runs):
         "geometric_mean_ratios": [geometric_mean(g["median_ratios"][i] for g in graphs)
                                   for i in range(len(columns))],
     }
+    if table == "v":
+        summary["geometric_mean_wall_ratios"] = [
+            geometric_mean(graph["median_wall_ratios"][i] for graph in graphs)
+            for i in range(len(columns))
+        ]
     if table == "vi":
         summary["direct_guidance_geometric_mean_ratios"] = {
             framework: geometric_mean(g["direct_guidance"][framework]["median_ratio"] for g in graphs)
