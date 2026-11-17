@@ -4,8 +4,8 @@ This repository contains experimental implementations and comparative drivers fo
 
 ## Algorithmic sources
 
-- **MBET / MBETM:** *Maximal Biclique Enumeration: A Prefix Tree Based Approach*, IEEE ICDE 2024. The MBET-family experiment contains the original baseline representation and implementation variants.
-- **IPS:** *Maximal Biclique Enumeration with Improved Worst-Case Time Complexity Guarantee: A Partition-Oriented Strategy*, ACM SIGMOD 2026. The IPS-native studies use a count-aggregation protocol, reported separately from explicit-output enumeration.
+- **MBET / MBETM.** *Maximal Biclique Enumeration: A Prefix Tree Based Approach*, IEEE ICDE 2024. The MBET-family benchmark rebuilds the published search implementations with the shared per-result count and fingerprint semantics. [Authors' MBET repository](https://github.com/Haizs/MBET)
+- **IPS.** *Maximal Biclique Enumeration with Improved Worst-Case Time Complexity Guarantee: A Partition-Oriented Strategy*, ACM SIGMOD 2026. The IPS-native studies aggregate counts. The controlled Double variants process individual results with fingerprints. [Authors' IPS repository](https://github.com/wangkaixin219/IPS)
 - **Single/Double framework variants:** Candidate Tree, Result Tree, state representation, and termination/guidance experiments are organized in `src/paper_ablations/`.
 
 Original authors and other rights holders retain their applicable intellectual-property and license rights. Code attribution is not a substitute for the applicable upstream source licenses.
