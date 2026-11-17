@@ -23,12 +23,15 @@ Commands:
 Example:
   bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200
 
-All source modules are stored in the pinned src/paper_ablations ZIP.
+The pinned source archive and revised drivers are under src/paper_ablations.
 HELP
   exit 0
 fi
 
 cmd="$1"
+mkdir -p "$ROOT/outputs/paper_suite"
+exec 9>"$ROOT/outputs/paper_suite/campaign.lock"
+flock -n 9 || { echo "Another process is writing to outputs/paper_suite" >&2; exit 1; }
 python3 scripts/setup_paper_ablations.py
 SUITE="$ROOT/outputs/paper_suite/framework_ablations"
 

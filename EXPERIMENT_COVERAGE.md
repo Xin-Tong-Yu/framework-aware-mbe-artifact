@@ -102,6 +102,12 @@ The runner checks its saved `protocol.txt` before resuming. A changed run
 configuration uses a new output directory so the original records stay available.
 The launcher reports each incomplete study and continues through the remaining
 studies. It exits with a failure status if any table still lacks validated blocks.
+For Table VI, a native failure or fingerprint mismatch stops work on that graph
+and the driver continues with the remaining graphs. Resuming with
+`--retry-failed` retains complete blocks by their original seeds and measures
+the unresolved blocks again. The installer stages the revised driver over the
+pinned archive. Earlier checkpoints remain compatible when their executable,
+input, and run metadata match.
 
 Rebuild a specific table without rerunning the benchmark by passing its
 Roman numeral in lowercase:
