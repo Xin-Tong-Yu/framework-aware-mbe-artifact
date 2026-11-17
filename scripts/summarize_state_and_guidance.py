@@ -101,7 +101,7 @@ def candidate_blocks(entry, modes, runs, count):
         if set(block) != expected:
             raise ValueError("missing or unexpected Candidate Tree mode")
         for job in block.values():
-            check_fingerprint("candidate", job["signature"], count, fingerprints)
+            check_fingerprint("single", job["signature"], count, fingerprints)
         start, end = (positive(block[key]["clock"]) for key in ("st_begin", "st_end"))
         elapsed = positive(end - start)
         begin_ms, end_ms = (positive(block[key]["ms"]) for key in ("st_begin", "st_end"))
@@ -112,7 +112,8 @@ def candidate_blocks(entry, modes, runs, count):
         ])
         for name, (control, variant) in CANDIDATE_ADDITIONS.items():
             additions[name].append(measured[control] / measured[variant])
-    return paired, {"incremental_contrasts": {name: paired_summary(values) for name, values in additions.items()}}
+    contrasts = {name: paired_summary(values) for name, values in additions.items()}
+    return paired, {"incremental_contrasts": contrasts}, fingerprints
 
 
 def native_jobs(block, anchors, variants, table):
@@ -179,7 +180,10 @@ def other_blocks(raw, table, runs, count):
                 if mode in rss:
                     rss[mode].append(positive(job["rss_kb"]) / 1024)
             else:
-                group = mode in ("flat_cr", "inline_cr") if table == "iv" else mode.split("_")[0]
+                if table == "iv":
+                    group = "cr" if mode in ("flat_cr", "inline_cr") else "no_cr"
+                else:
+                    group = {"one": "single", "two": "double"}[mode.split("_")[0]]
                 first, second = job["xor"], job["sum"]
             check_fingerprint(group, (job["count"], first, second), count, fingerprints)
 
@@ -206,17 +210,15 @@ def other_blocks(raw, table, runs, count):
                     raise ValueError(f"branch work changed between {vector} and {compact}")
 
     if table == "iv":
-        return paired, {"cr_layout_interaction": paired_summary(cr_interaction)}
+        return paired, {"cr_layout_interaction": paired_summary(cr_interaction)}, fingerprints
     if table == "v":
         return paired, {"median_peak_rss_mib": {mode: median(values) for mode, values in rss.items()},
                         "block_wall_ratios": wall,
-                        "median_wall_ratios": [median(values) for values in zip(*wall)]}
-    if table == "vi":
-        return paired, {
-            "median_st_ms": {framework: median(values) for framework, values in st_midpoints.items()},
-            "direct_guidance": {framework: paired_summary(values) for framework, values in direct.items()},
-        }
-    return paired, {}
+                        "median_wall_ratios": [median(values) for values in zip(*wall)]}, fingerprints
+    return paired, {
+        "median_st_ms": {framework: median(values) for framework, values in st_midpoints.items()},
+        "direct_guidance": {framework: paired_summary(values) for framework, values in direct.items()},
+    }, fingerprints
 
 
 def guidance_sensitivity(graphs):
@@ -269,7 +271,7 @@ def verified_inputs(document, table, runs):
     return meta[input_key], binaries
 
 
-def summarize(suite, table, stats, runs):
+def summarize(suite, table, stats, runs, *, include_signatures=False):
     path = suite / CHECKPOINTS[table]
     raw = path.read_bytes()
     document = json.loads(raw)
@@ -288,14 +290,18 @@ def summarize(suite, table, stats, runs):
                 expected = identity["candidate_edge_list_sha256"]
                 if entry["graph_sha256"] != expected:
                     raise ValueError("normalized Candidate Tree input does not match")
-                paired, extra = candidate_blocks(entry, document["modes"], runs, count)
+                paired, extra, fingerprints = candidate_blocks(entry, document["modes"], runs, count)
             else:
                 declared = inputs[graph] if table == "iv" else inputs[graph]["sha256"]
                 if declared != identity["sha256"]:
                     raise ValueError("recorded input SHA-256 does not match the canonical graph")
-                paired, extra = other_blocks(checkpoints[graph], table, runs, count)
+                paired, extra, fingerprints = other_blocks(checkpoints[graph], table, runs, count)
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"{graph}: {error}") from error
+        if include_signatures:
+            extra["output_signatures"] = {
+                group: dict(zip(("count", "xor", "sum"), signature)) for group, signature in fingerprints.items()
+            }
         graphs.append({
             "graph": graph, "label": stat["paper_label"], "count": count,
             "input_sha256": identity["sha256"], "block_ratios": paired,

@@ -20,7 +20,7 @@ def ratio_change(archived, replayed):
 
 def load_archive(path, table, stats):
     if path.is_dir():
-        original = summarize(path, table, stats, 5)
+        original = summarize(path, table, stats, 5, include_signatures=True)
         return {"evidence_type": "archived_native_checkpoints",
                 "source": {"checkpoint_sha256": original["checkpoint_sha256"],
                            "binaries": original["binaries"], "blocks_per_graph": original["runs"]},
@@ -50,6 +50,14 @@ def compare(archive, replay, table):
             if (original["input_sha256"], original["count"]) != (observed["input_sha256"], observed["count"]):
                 raise ValueError(f"{observed['graph']}: original input or reference count differs")
             result["archived_input_sha256"] = original["input_sha256"]
+            saved_signatures = original["output_signatures"]
+            fresh_signatures = observed["output_signatures"]
+            if saved_signatures.keys() != fresh_signatures.keys():
+                raise ValueError(f"{observed['graph']}: fingerprint groups differ")
+            for group, signature in saved_signatures.items():
+                if signature != fresh_signatures[group]:
+                    raise ValueError(f"{observed['graph']}: original and replayed {group} fingerprints differ")
+            result["matched_output_signatures"] = fresh_signatures
         if table == "vi":
             result["direct_guidance"] = {
                 framework: ratio_change(original["direct_guidance"][framework]["median_ratio"],
@@ -73,6 +81,7 @@ def compare(archive, replay, table):
     if has_original_runs:
         output["binary_sha256_matches"] = {mode: identity == historical["binaries"][mode]
                                           for mode, identity in replay["binaries"].items()}
+        output["matched_output_signature_count"] = sum(len(graph["matched_output_signatures"]) for graph in graphs)
     if table == "vi":
         output["direct_guidance_geometric_means_over_compared_graphs"] = {
             framework: paired_gm("direct_guidance", framework) for framework in GUIDANCE_COLUMNS
@@ -96,7 +105,8 @@ def main():
     selected = set(args.graphs or stats)
     try:
         archived = load_archive(args.archive, args.table, list(stats.values()))
-        replay = summarize(args.suite, args.table, [stat for name, stat in stats.items() if name in selected], 5)
+        replay = summarize(args.suite, args.table, [stat for name, stat in stats.items() if name in selected], 5,
+                           include_signatures=args.archive.is_dir())
         result = compare(archived, replay, args.table)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")

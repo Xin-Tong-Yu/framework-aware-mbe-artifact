@@ -97,7 +97,10 @@ CSV entry is also accepted. Use `--graphs` to compare a subset with complete
 replay blocks. Both geometric means use that same subset. The report gives
 the speedup differences in percentage points and records input and binary
 identities. A comparison of native checkpoints also records whether each
-binary SHA-256 agrees across runs.
+binary SHA-256 agrees across runs. It verifies the original and replayed
+counts, XOR and sum for each compatible fingerprint group before comparing
+timings. The aggregate report contains medians and does not provide output
+fingerprints for this cross-campaign check.
 
 ## Regenerating Tables III–VI from native checkpoints
 
@@ -159,6 +162,11 @@ Table IV divides inline/no-CR by inline+CR search time in each block. The
 archived aggregate report gives a +7.7% geometric mean for that comparison.
 The Table IV JSON divides that within-block ratio by the CR ratio under the
 flat layout to quantify the interaction with Result Tree layout.
+Run `python3 scripts/verify_result_layout.py` to check the four native builds
+with both tuple emission and checksum-only reporting. It uses the original
+Table IV build flags and input adapter on two multiword fixtures and checks
+each output against the exact bicliques and independent checksums.
+
 Table V additionally checks equal branch counts for each matched Vector/Compact
 comparison. Run `python3 scripts/verify_double_branch_trace.py` to compare its
 complete selected, candidate, and excluded state sequences and pivot choices

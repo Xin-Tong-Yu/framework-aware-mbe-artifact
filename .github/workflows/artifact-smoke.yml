@@ -43,6 +43,9 @@ jobs:
       - name: Check Candidate Tree Cursor and Pre-fork
         run: python3 scripts/verify_single_candidate_forks.py
 
+      - name: Check Result Tree layout and compressed checksums
+        run: python3 scripts/verify_result_layout.py
+
       - name: Compare Vector and Compact Double branch traces
         run: python3 scripts/verify_double_branch_trace.py
 

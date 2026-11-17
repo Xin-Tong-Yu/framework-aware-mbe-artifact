@@ -44,7 +44,7 @@ def signature(bicliques):
     return len(bicliques), xor, total & MASK
 
 
-def fixture(path, transpose):
+def fixture(path, transpose, *, force_header=False):
     edges = {(u, v) for u in range(6) for v in range(7) if u != v and (u, v) != (0, 1)}
     if transpose:
         edges = {(v, u) for u, v in edges}
@@ -56,7 +56,10 @@ def fixture(path, transpose):
         return tuple(range(start, start + 13))
 
     expanded = [(u, v) for a, b in sorted(edges) for u in labels(a) for v in labels(b)]
-    header = "" if transpose else f"{13 * nl} {13 * nr} {len(expanded)}\n"
+    header = ""
+    if force_header or not transpose:
+        offset = int(transpose)
+        header = f"{13 * nl + offset} {13 * nr + offset} {len(expanded)}\n"
     path.write_text(header + "".join(f"{u} {v}\n" for u, v in expanded), encoding="ascii")
     result = set()
     for mask in range(1, 1 << nl):
