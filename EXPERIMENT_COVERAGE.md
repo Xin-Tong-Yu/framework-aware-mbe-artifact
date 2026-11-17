@@ -91,11 +91,14 @@ python3 scripts/summarize_state_and_guidance.py "$dir/framework_ablations" vi "$
 ```
 
 The summarizer checks graph identities, complete blocks, positive times,
-reference counts, and compatible fingerprints. Table V additionally checks
-branch equality for each matched Vector/Compact comparison. Its memory cells
-are medians of the peak RSS values for the ten ST runs of each build. The
-JSON files include the raw paired ratios and checkpoint hashes, and Table V
-also records paired wall-time ratios. Table VI reports direct added-policy
+reference counts, and compatible fingerprints. The fifth speedup column of
+Table IV divides inline/no-CR by inline+CR search time in each block. The
+archived aggregate report gives a +7.7% geometric mean for that comparison.
+Table V additionally checks equal branch counts for each matched Vector/Compact
+comparison. Its memory cells are medians of whole-process peak RSS over the
+ten ST runs of each build. The JSON files include the raw paired ratios and
+checkpoint hashes. Table V also records paired wall-time ratios. Table VI
+reports direct added-policy
 comparisons in its JSON. Each block divides the ET-only time by the ET with
 policy time within the same framework. The published ST comparisons continue
 to use interpolated ST anchors. The Double ST build still runs the matching

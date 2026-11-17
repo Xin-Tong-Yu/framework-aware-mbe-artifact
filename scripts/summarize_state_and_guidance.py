@@ -33,7 +33,7 @@ PROGRAMS = {
 CONTRASTS = {
     "iii": ("inline/map", "inline_cursor/map", "inline_cursor_prefork/map"),
     "iv": ("flat_cr/flat_no_cr", "inline_no_cr/flat_no_cr",
-           "inline_cr/flat_no_cr", "inline_cr/flat_cr"),
+           "inline_cr/flat_no_cr", "inline_cr/flat_cr", "inline_cr/inline_no_cr"),
     "v": ("compact_st/vector_st", "compact_et_tg/vector_et_tg",
           "vector_et_tg/vector_st", "compact_et_tg/compact_st"),
     "vi": ("single_et/st", "single_et_prefix/st", "double_et/st", "double_et_pivot/st"),
@@ -175,7 +175,8 @@ def other_blocks(raw, table, runs, count):
         if table == "iv":
             reference = (timings["flat_no_cr_begin"] + timings["flat_no_cr_end"]) / 2
             ratios = [reference / timings[mode] for mode in CR]
-            paired.append([*ratios, timings["flat_cr"] / timings["inline_cr"]])
+            paired.append([*ratios, timings["flat_cr"] / timings["inline_cr"],
+                           timings["inline_no_cr"] / timings["inline_cr"]])
         else:
             paired.append(anchored_ratios(jobs, anchors, variants, "ms"))
         for framework, (control, variant) in direct_modes.items():
@@ -275,7 +276,7 @@ def summarize(suite, table, stats, runs):
 
 
 def latex_rows(summary, table):
-    groups = {"iii": ((0, 1, 2),), "iv": ((0, 1, 2),), "v": ((0, 1), (2, 3)), "vi": ()}
+    groups = {"iii": ((0, 1, 2),), "iv": ((0, 1, 2),), "v": (), "vi": ()}
 
     def cells(values):
         best = {max(group, key=values.__getitem__) for group in groups[table]}
