@@ -63,10 +63,54 @@ def check_pair(control, sampled):
 
     estimates = {phase: projected(measured[phase], calls, samples) for phase in PHASES[1:]}
     estimates["gate"] = projected(measured["gate"], gates, gate_samples)
-    return {"profile_to_control_time_ratio": profiled_time / search_time(control),
+    terminal_parts = {
+        "successful_setup_and_complement": max(0.0, measured["setup"] + measured["build"] - measured["fallback"]),
+        "failed_setup_and_complement": measured["fallback"],
+        "component_decomposition": measured["decompose"],
+        "enumeration_without_callback": max(0.0, measured["generate"] - measured["emit"]),
+        "terminal_output_callback": measured["emit"],
+    }
+    exclusive = {"eligibility": estimates["gate"], **{
+        phase: projected(value, calls, samples) for phase, value in terminal_parts.items()
+    }}
+    control_time = search_time(control)
+    return {"control_search_ms": 1000 * control_time, "profiled_search_ms": 1000 * profiled_time,
+            "profile_to_control_time_ratio": profiled_time / control_time,
             "eligibility_calls": gates, "eligibility_samples": gate_samples,
             "terminal_calls": calls, "terminal_samples": samples, "terminal_fallbacks": fallbacks,
-            "measured_ms": measured, "estimated_ms": estimates}
+            "measured_ms": measured, "estimated_ms": estimates, "exclusive_estimated_ms": exclusive}
+
+
+def observed_range(values):
+    observed = [value for value in values if value is not None]
+    if not observed:
+        return {"available_blocks": 0, "median": None, "range": None}
+    return {"available_blocks": len(observed), "median": median(observed),
+            "range": [min(observed), max(observed)]}
+
+
+def compare_terminals(et1, et2):
+    if not et1["blocks"] or len(et1["blocks"]) != len(et2["blocks"]):
+        raise ValueError("ET1 and ET2 profile block counts differ or are empty")
+    paired = []
+    for first, second in zip(et1["blocks"], et2["blocks"]):
+        if first["block"] != second["block"] or first["profile_seed"] != second["profile_seed"]:
+            raise ValueError("ET1 and ET2 profile blocks or seeds differ")
+        earlier, later = first["exclusive_estimated_ms"], second["exclusive_estimated_ms"]
+        if earlier.keys() != later.keys():
+            raise ValueError("ET1 and ET2 phase definitions differ")
+        changes = {phase: later[phase] - value if value is not None and later[phase] is not None else None
+                   for phase, value in earlier.items()}
+        paired.append({"block": first["block"], "profile_seed": first["profile_seed"],
+                       "ordinary_search_change_ms": second["control_search_ms"] - first["control_search_ms"],
+                       "ordinary_search_speed_ratio": first["control_search_ms"] / second["control_search_ms"],
+                       "estimated_phase_changes_ms": changes})
+    return {"blocks": paired,
+            "ordinary_search_change_ms": observed_range(block["ordinary_search_change_ms"] for block in paired),
+            "ordinary_search_speed_ratio": observed_range(block["ordinary_search_speed_ratio"] for block in paired),
+            "estimated_phase_changes_ms": {
+                phase: observed_range(block["estimated_phase_changes_ms"][phase] for block in paired)
+                for phase in paired[0]["estimated_phase_changes_ms"]}}
 
 
 def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_check):
@@ -111,8 +155,10 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
             blocks.append({"block": block, "profile_seed": seed or None, **pair})
         result[control] = {"blocks": blocks, "median_profile_to_control_time_ratio": median(
             pair["profile_to_control_time_ratio"] for pair in blocks)}
+    terminal_comparison = compare_terminals(result[controls[1]], result[controls[2]])
     return {"graph": stat["graph"], "label": stat["paper_label"], "count": count,
-            "input_sha256": identity["sha256"], "csv_sha256": csv_sha, "profiles": result}, protocol
+            "input_sha256": identity["sha256"], "csv_sha256": csv_sha, "profiles": result,
+            "et2_minus_et1": terminal_comparison}, protocol
 
 
 def profile_main(description, framework, controls, pair_check):
@@ -145,6 +191,11 @@ def profile_main(description, framework, controls, pair_check):
     if protocol.get("profile_seeds"):
         print(f"[PROFILE_SEEDS] {len(protocol['profile_seeds'])} distinct seeds verified across paired blocks")
     for graph in graphs:
+        comparison = graph["et2_minus_et1"]
+        gain = 100 * (comparison["ordinary_search_speed_ratio"]["median"] - 1)
+        available = {phase: item["available_blocks"] for phase, item in comparison["estimated_phase_changes_ms"].items()}
+        print(f"[PAIRED_PHASES] {graph['graph']} {framework}: ordinary ET2/ET1 gain {gain:+.2f}%, "
+              f"estimated phase pairs {available}")
         for mode, profile in graph["profiles"].items():
             blocks = profile["blocks"]
             eligibility = sum(block["eligibility_samples"] for block in blocks)

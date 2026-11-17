@@ -321,6 +321,15 @@ and fingerprint accumulation. Incremental vertex hashing remains in solver
 work. Use the paired ordinary times for performance comparisons and the
 instrumented phase estimates to describe where terminal work is spent.
 
+The `et2_minus_et1` summary pairs the ordinary and profiled modes by block
+and sampling seed. It gives ET2 minus ET1 for ordinary search time and for
+each estimated phase separately. It reports the median, range, and number
+of blocks with an estimate for each phase. Positive time differences mean
+ET2 spent more time. A nonempty call population with zero samples gets a
+`null` estimate. Double subtracts callback time from generation and separates
+failed preparation from the total setup and complement construction time.
+These phase estimates cover instrumented work within the profiled runs.
+
 ### Single terminal phase profiling
 
 Use the same supplemental ZIP and substitute `--modes single-profile` on the
@@ -349,3 +358,9 @@ by the remainder of total attempt time. Failed-attempt time is contained
 in the total attempt time. The final output callback samples filtering,
 counting, and fingerprinting after the Result Tree has merged entries from
 terminal and ordinary search.
+
+Single uses the same `et2_minus_et1` format. It keeps failed-attempt time
+among the nested raw counters because it can include generation. The
+nonoverlapping summary uses selector, matching with tree integration,
+MIS generation, Result Tree integration, other terminal work, and the
+final output callback. Phases absent from an algorithm contribute zero.

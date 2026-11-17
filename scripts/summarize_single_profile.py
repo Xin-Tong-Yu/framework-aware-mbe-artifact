@@ -45,11 +45,23 @@ def check_pair(control, sampled):
     estimates = {phase: projected(value, calls, samples) for phase, value in measured.items()}
     estimates["gate"] = projected(measured["gate"], gates, gate_samples)
     estimates["output"] = projected(measured["output"], outputs, output_samples)
-    return {"profile_to_control_time_ratio": profiled_time / search_time(control),
+    # A failed attempt can include generation work. Keep that overlapping
+    # timer in the raw estimates and partition only the known disjoint regions.
+    exclusive = {"eligibility": estimates["gate"], "matching_with_tree_updates": estimates["matching"],
+                 "mis_generation": estimates["generate"], "result_tree_integration": estimates["commit"],
+                 "terminal_preparation_and_other": estimates["preparation_and_other"],
+                 "final_output_callback": estimates["output"]}
+    if control["mode"] == BASE[1]:
+        exclusive["mis_generation"] = exclusive["result_tree_integration"] = 0.0
+    elif control["mode"] == BASE[2]:
+        exclusive["matching_with_tree_updates"] = 0.0
+    control_time = search_time(control)
+    return {"control_search_ms": 1000 * control_time, "profiled_search_ms": 1000 * profiled_time,
+            "profile_to_control_time_ratio": profiled_time / control_time,
             "eligibility_calls": gates, "eligibility_samples": gate_samples,
             "terminal_calls": calls, "terminal_samples": samples, "terminal_fallbacks": fallbacks,
             "output_calls": outputs, "output_samples": output_samples,
-            "measured_ms": measured, "estimated_ms": estimates}
+            "measured_ms": measured, "estimated_ms": estimates, "exclusive_estimated_ms": exclusive}
 
 
 if __name__ == "__main__":
