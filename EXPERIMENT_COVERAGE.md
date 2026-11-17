@@ -102,6 +102,14 @@ counts, XOR and sum for each compatible fingerprint group before comparing
 timings. The aggregate report contains medians and does not provide output
 fingerprints for this cross-campaign check.
 
+For native Table VI checkpoints the report also compares the recorded terminal,
+prefix, deferral, and pivot counters by mode. It matches the complete counter
+observations regardless of run order. If an older checkpoint lacks a counter,
+the report lists it as unavailable for that mode. The fully matched run count
+requires all counters to be present. The report also gives the number of
+faster, slower, and tied ET+policy blocks against ET on the same graph subset
+in both batches.
+
 ## Regenerating Tables III–VI from native checkpoints
 
 Use a dedicated output directory and choose a logical CPU available to the

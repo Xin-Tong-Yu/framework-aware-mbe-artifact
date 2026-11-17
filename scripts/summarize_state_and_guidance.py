@@ -24,6 +24,10 @@ CR = ("flat_cr", "inline_no_cr", "inline_cr")
 DOUBLE = ("vector_st", "compact_st", "vector_et_tg", "compact_et_tg")
 GUIDED = ("one_et", "one_et_tg", "two_et", "two_et_tg_compact")
 DIRECT_GUIDANCE = {"single": GUIDED[:2], "double": GUIDED[2:]}
+GUIDANCE_COUNTERS = {
+    "one": ("et_hits", "tg_prefix2_hits", "tg_ge3_hits", "tg_deferred_paths"),
+    "two": ("et_used", "et_output", "pivot_c", "pivot_x"),
+}
 CHECKPOINTS = {
     "iii": "diagnostics/V63_CHECKPOINT.json",
     "iv": "MBE_ST_CR_2X2_20261108/diagnostics/MBE_ST_CR_2X2_CHECKPOINT.json",
@@ -241,6 +245,19 @@ def guidance_sensitivity(graphs):
             "filtered_graphs": [graph["graph"] for graph in longer], "frameworks": result}
 
 
+def recorded_guidance_work(blocks):
+    by_mode = {}
+    for block in blocks:
+        for job in block["jobs"]:
+            mode = job["mode"]
+            counters = {name: job.get(name) for name in GUIDANCE_COUNTERS[mode.split("_")[0]]}
+            for name, value in counters.items():
+                if value is not None and (type(value) is not int or value < 0):
+                    raise ValueError(f"{mode}: invalid {name} counter")
+            by_mode.setdefault(mode, []).append(counters)
+    return by_mode
+
+
 def verified_inputs(document, table, runs):
     if table == "iii":
         expected = {"st_only", *CANDIDATE}
@@ -293,6 +310,8 @@ def summarize(suite, table, stats, runs, *, include_signatures=False):
                 if declared != identity["sha256"]:
                     raise ValueError("recorded input SHA-256 does not match the canonical graph")
                 paired, extra, fingerprints = other_blocks(checkpoints[graph], table, runs, count)
+                if table == "vi" and include_signatures:
+                    extra["recorded_work_by_mode"] = recorded_guidance_work(checkpoints[graph])
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"{graph}: {error}") from error
         if include_signatures:
