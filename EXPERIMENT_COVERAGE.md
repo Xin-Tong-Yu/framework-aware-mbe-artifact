@@ -173,6 +173,23 @@ the Double matching-oriented pivot. Recovering the individual block ratios
 requires raw checkpoints or a replay. Each LaTeX file contains the generated
 table rows.
 
+## Sensitivity to one omitted paired block
+
+After the offline archive verifier reconstructs the tables, run from the
+repository root:
+
+```sh
+python3 scripts/summarize_paired_sensitivity.py \
+  /path/to/extracted-evidence/reconstructed paired_block_sensitivity.json
+```
+
+Use the rebuilt search contrasts for Tables II–VII, the direct increments
+and policy contrasts, and the recorded whole-process time ratios for Table V.
+The report gives each graph's five leave-one-block-out medians and the exact
+suite geometric-mean extrema when each graph may omit a different block.
+The range describes sensitivity to the recorded blocks. The unit of deletion
+is a whole within-graph block, including its timed reference runs.
+
 ## Regenerating the unguided ET table
 
 Run the thirteen-graph campaign and keep each CSV with its run manifest. Use
