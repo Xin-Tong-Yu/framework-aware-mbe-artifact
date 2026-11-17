@@ -349,6 +349,21 @@ samples gets a `null` estimate. Double subtracts callback time from generation
 and separates failed preparation from the total setup and complement
 construction time.
 
+Pass the original evidence ZIP and the original Bitmap Guard runner to
+either phase summarizer to check that the ordinary and profiled runs match
+the search work recorded for Table VII. The comparison verifies each mode
+and block against the original counts, fingerprints and terminal counters.
+For Double it also compares branch and terminal-output counts. The output
+keeps the original ET2 minus ET1 time differences separate from the phase
+experiment's ordinary and profiled differences.
+
+```sh
+python3 scripts/summarize_double_profile.py "$dir" --runner "$runner" \
+  --original-archive outputs/historical_paper_records/MBE_Archived_Table_II_VII.zip \
+  --original-runner outputs/historical_paper_records/MBE_BIPLEX_PURE_1V2_BITMAP_GUARD.zip \
+  --graphs github --json "$dir/github_with_original.json"
+```
+
 ### Single terminal phase profiling
 
 Use the same supplemental ZIP and substitute `--modes single-profile` on the

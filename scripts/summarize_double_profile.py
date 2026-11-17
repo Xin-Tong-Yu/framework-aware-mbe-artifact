@@ -2,13 +2,18 @@
 """Validate paired Double profiling runs and summarize sampled phase times."""
 
 import argparse
+from contextlib import nullcontext
+from hashlib import sha256 as digest
 import json
 import math
 from pathlib import Path
 import re
 from statistics import median
 import sys
+from zipfile import BadZipFile, ZipFile
 
+from compare_pure_replay import compare_work
+from rebuild_archived_tables import read_csv, read_pure_rows
 from summarize_pure_csv import BLOCKS, ROOT, records, sha256, verify_manifest
 
 
@@ -127,10 +132,22 @@ def compare_terminals(et1, et2):
                 for phase in paired[0]["estimated_phase_changes_ms"]}}
 
 
-def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_check):
+def compare_original_work(original, measurements, controls):
+    original = [row for row in original if row["mode"] in controls]
+    ordinary = [row for row in measurements if row["mode"] in controls]
+    profiled = [{**row, "mode": row["mode"].removesuffix("_profile")}
+                for row in measurements if row["mode"] not in controls]
+    matches = {"ordinary": compare_work(original, ordinary), "profiled": compare_work(original, profiled)}
+    times = {(int(row["block"]), row["mode"]): 1000 * search_time(row) for row in original}
+    changes = [times[block, controls[2]] - times[block, controls[1]] for block in BLOCKS]
+    return {"matched_search_work": matches, "original_et2_minus_et1_ms": observed_range(changes)}
+
+
+def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_check, original=None):
     profiled_modes = tuple(mode + "_profile" for mode in controls)
     modes = (*controls, *profiled_modes)
-    csv_sha, protocol = verify_manifest(path, identity, runner_sha, modes)
+    raw = path.read_bytes()
+    csv_sha, protocol = verify_manifest(path, identity, runner_sha, modes, csv_sha=digest(raw).hexdigest())
     if protocol.get("matrix") != framework + "-profile":
         raise ValueError(f"{path}: expected the {framework}-profile matrix")
     seeds = protocol.get("profile_seeds")
@@ -139,7 +156,7 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
                                    or int(seed) >= 2**64 for seed in seeds)
                             or len(set(seeds)) != len(BLOCKS)):
         raise ValueError(f"{path}: expected one distinct 64-bit profiling seed per block")
-    rows = records(path)
+    rows = read_csv(raw)
     by_block = {(int(row["block"]), row["mode"]): row for row in rows}
     expected = {(block, mode) for block in BLOCKS for mode in modes}
     if len(rows) != len(expected) or set(by_block) != expected:
@@ -170,9 +187,18 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
         result[control] = {"blocks": blocks, "median_profile_to_control_time_ratio": median(
             pair["profile_to_control_time_ratio"] for pair in blocks)}
     terminal_comparison = compare_terminals(result[controls[1]], result[controls[2]])
-    return {"graph": stat["graph"], "label": stat["paper_label"], "count": count,
-            "input_sha256": identity["sha256"], "csv_sha256": csv_sha, "profiles": result,
-            "et2_minus_et1": terminal_comparison}, protocol
+    summary = {"graph": stat["graph"], "label": stat["paper_label"], "count": count,
+               "input_sha256": identity["sha256"], "csv_sha256": csv_sha, "profiles": result,
+               "et2_minus_et1": terminal_comparison}
+    if original is not None:
+        archive, historical_runner_sha = original
+        try:
+            original_rows, original_csv_sha = read_pure_rows(archive, historical_runner_sha, stat["graph"], identity)
+            comparison = compare_original_work(original_rows, rows, controls)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"{path}: original measurement comparison: {error}") from error
+        summary["original_campaign"] = {"csv_sha256": original_csv_sha, **comparison}
+    return summary, protocol
 
 
 def profile_main(description, framework, controls, pair_check):
@@ -182,23 +208,39 @@ def profile_main(description, framework, controls, pair_check):
     parser.add_argument("run_directory", type=Path)
     parser.add_argument("--runner", type=Path, required=True)
     parser.add_argument("--graphs", nargs="+", choices=stats, default=("github", "dblp", "twitter"))
+    parser.add_argument("--original-archive", type=Path, help="Original per-run Table VII evidence ZIP")
+    parser.add_argument("--original-runner", type=Path, help="Original Bitmap Guard runner ZIP")
     parser.add_argument("--json", type=Path, required=True)
     args = parser.parse_args()
+    if (args.original_archive is None) != (args.original_runner is None):
+        parser.error("--original-archive and --original-runner must be supplied together")
+    sources = [args.runner, args.original_archive, args.original_runner]
+    for graph in args.graphs:
+        measurements = args.run_directory / f"{graph}.csv"
+        sources.extend((measurements, measurements.with_suffix(".csv.manifest.json")))
+    if args.json.resolve() in {path.resolve() for path in sources if path is not None}:
+        parser.error("--json needs a separate output path")
     try:
         runner_sha = sha256(args.runner)
+        historical_runner_sha = sha256(args.original_runner) if args.original_runner else None
         graphs = []
         protocol = None
-        for graph in dict.fromkeys(args.graphs):
-            result, current = summarize_graph(args.run_directory / f"{graph}.csv", stats[graph],
-                                              identities[graph], runner_sha, framework, controls, pair_check)
-            if protocol is not None and current != protocol:
-                raise ValueError(f"{graph}: execution settings differ from the other graphs")
-            protocol = current
-            graphs.append(result)
+        source = ZipFile(args.original_archive) if args.original_archive else nullcontext()
+        with source as archive:
+            original = (archive, historical_runner_sha) if archive is not None else None
+            for graph in dict.fromkeys(args.graphs):
+                result, current = summarize_graph(args.run_directory / f"{graph}.csv", stats[graph],
+                                                  identities[graph], runner_sha, framework, controls, pair_check, original)
+                if protocol is not None and current != protocol:
+                    raise ValueError(f"{graph}: execution settings differ from the other graphs")
+                protocol = current
+                graphs.append(result)
         document = {"protocol": protocol, "framework": framework,
                     "sample_interval": SAMPLE_INTERVAL, "graphs": graphs}
+        if historical_runner_sha is not None:
+            document["original_runner_sha256"] = historical_runner_sha
         args.json.write_text(json.dumps(document, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (BadZipFile, OSError, ValueError, KeyError, TypeError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
     print(f"PASS: {len(graphs)} graphs x {len(BLOCKS)} validated profile blocks")
@@ -213,6 +255,10 @@ def profile_main(description, framework, controls, pair_check):
         print(f"[PAIRED_PHASES] {graph['graph']} {framework}: ordinary ET2/ET1 gain {gain:+.2f}%, "
               f"profiled gain {profiled_gain:+.2f}%, change in ET2 minus ET1 time {timing_shift:+.3f} ms, "
               f"estimated phase pairs {available}")
+        if "original_campaign" in graph:
+            work = graph["original_campaign"]["matched_search_work"]
+            print(f"[ORIGINAL_WORK] {graph['graph']} {framework}: {work['ordinary']} ordinary and "
+                  f"{work['profiled']} profiled observations match Table VII")
         for mode, profile in graph["profiles"].items():
             blocks = profile["blocks"]
             eligibility = sum(block["eligibility_samples"] for block in blocks)

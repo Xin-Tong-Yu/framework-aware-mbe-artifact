@@ -73,6 +73,21 @@ class PhaseComparisonTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "blocks or seeds differ"):
             double.compare_terminals(et1, et2)
 
+    def test_original_search_work_is_checked_for_both_kinds_of_measurement(self):
+        original = [
+            {"block": str(block), "mode": mode, "kind": "single", "time_s": str(index + 1),
+             "count": "19", "fingerprint": "20|21", "et": str(index != 0),
+             "et_attempt": str(index), "et_hit": str(index), "et_degree2_hit": str(int(index == 2))}
+            for block in double.BLOCKS for index, mode in enumerate(single.BASE)
+        ]
+        measured = [*original, *({**row, "mode": row["mode"] + "_profile"} for row in original)]
+        summary = double.compare_original_work(original, measured, single.BASE)
+        self.assertEqual(summary["matched_search_work"], {"ordinary": 15, "profiled": 15})
+        self.assertEqual(summary["original_et2_minus_et1_ms"]["median"], 1000)
+        measured[-1]["et_hit"] = "3"
+        with self.assertRaisesRegex(ValueError, "replay changed et_hit"):
+            double.compare_original_work(original, measured, single.BASE)
+
     @staticmethod
     def block(number, search, profiled_search, eligibility, output):
         return {"block": number, "profile_seed": str(number), "control_search_ms": search,
