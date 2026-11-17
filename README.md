@@ -48,6 +48,8 @@ python3 runners/MBE_FAIR_MBET_2024.zip selftest --cases 20
 python3 runners/MBE_PURE_ET1_ET2.zip selftest --cases 20 \
   --modes single_st,single_et1,single_et2,double_compact_st,double_compact_et1,double_compact_et2
 
+python3 scripts/verify_pure_terminals.py
+
 python3 scripts/setup_paper_ablations.py --check-only
 python3 scripts/setup_paper_ablations.py
 bash scripts/run_paper_ablations.sh check-source
