@@ -64,7 +64,8 @@ def summarize_graph_rows(rows, input_info, stat, csv_sha):
     expected_count = int(stat["reference_bicliques"])
     if {int(row["count"]) for row in rows} != {expected_count}:
         raise ValueError(f"{stat['graph']}: count differs from the reference {expected_count}")
-    times = {(int(row["block"]), row["mode"]): float(row["time_s"]) for row in rows}
+    measurements = {(int(row["block"]), row["mode"]): row for row in rows}
+    times = {key: float(row["time_s"]) for key, row in measurements.items()}
     result = {"graph": stat["graph"], "label": stat["paper_label"], "input_sha256": input_info["sha256"],
               "csv_sha256": csv_sha, "count": expected_count, "frameworks": {}}
     for framework, prefix in FAMILIES.items():
@@ -78,6 +79,19 @@ def summarize_graph_rows(rows, input_info, stat, csv_sha):
             "comparisons": comparisons,
         }
 
+    double = FAMILIES["double"]
+    calls = {mode: [measurements[block, f"{double}_{mode}"].get("branch_calls") for block in BLOCKS]
+             for mode in ("et1", "et2")}
+    if all(value not in (None, "") for counts in calls.values() for value in counts):
+        calls = {mode: [int(value) for value in counts] for mode, counts in calls.items()}
+        if any(value < 0 for counts in calls.values() for value in counts):
+            raise ValueError(f"{stat['graph']}: invalid Double branch counts")
+        if min(calls["et1"]) > 0:
+            fractions = [(et1 - et2) / et1 for et1, et2 in zip(calls["et1"], calls["et2"])]
+            result["frameworks"]["double"]["branch_comparison"] = {
+                "block_calls": calls, "block_reduction_fractions": fractions,
+                "median_reduction_fraction": statistics.median(fractions),
+            }
     return result
 
 
@@ -106,7 +120,23 @@ def pure_summary(graphs, protocol):
                                              for g in graphs)
             for label in COMPARISONS
         }
-    return {"protocol": protocol, "graphs": graphs, "geometric_mean_ratios": gm}
+    summary = {"protocol": protocol, "graphs": graphs, "geometric_mean_ratios": gm}
+    double = {graph["graph"]: graph["frameworks"]["double"] for graph in graphs}
+    branch = {name: result["branch_comparison"] for name, result in double.items()
+              if "branch_comparison" in result}
+    if branch:
+        reductions = [result["median_reduction_fraction"] for result in branch.values()]
+        reduced = [name for name, result in branch.items()
+                   if min(result["block_reduction_fractions"]) > 0]
+        summary["double_branch_comparison"] = {
+            "graphs_with_branch_counts": list(branch),
+            "graphs_with_fewer_et2_calls_in_every_block": reduced,
+            "graphs_with_fewer_calls_and_slower_et2_paired_median": [
+                name for name in reduced if double[name]["comparisons"]["ET2/ET1"]["median_ratio"] < 1
+            ],
+            "median_reduction_fraction_range": [min(reductions), max(reductions)],
+        }
+    return summary
 
 
 def speedup(ratio):

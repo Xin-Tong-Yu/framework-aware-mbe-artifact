@@ -51,6 +51,12 @@ python3 scripts/rebuild_archived_tables.py \
 
 The script checks 260 MBET-family and 390 pure ET records against the canonical input identities and reference counts. It checks that MBET-family executable hashes, flags, and run settings agree across graphs, and matches the Bitmap Guard runner ZIP to the per-graph recorded hashes. It emits the rows of Tables II and VII plus a JSON file with five paired ratios for each contrast, archive and CSV hashes, and the Table VII sensitivity analysis restricted to graphs with at least one second of median ST time in both frameworks. The MBET-family summary includes whole-process wall-time ratios from the same runs. The original pure records identify the runner ZIP. New replay manifests also identify each mode's binary.
 
+For Double, the JSON retains the paired ET1 and ET2 branch counts where they
+were recorded. The relative reduction uses ET1 calls as the reference. The
+summary identifies graphs with fewer ET2 calls in all five blocks and which
+of those have a slower ET2 paired median. That comparison also appears in the
+subset with median ST time of at least one second in both frameworks.
+
 Append `--evidence-zip MBE_Archived_Table_II_VII.zip` to export the verified
 CSV files and summaries with a SHA-256 inventory. This snapshot contains
 measurement records and checksums. Its README gives the command that

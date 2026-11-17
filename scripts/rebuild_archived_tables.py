@@ -165,16 +165,20 @@ def rebuild(archive_path, runner_sha, verified_runner_file):
     pure_protocol = {"declared_runner_sha256": runner_sha, "verified_runner_file": verified_runner_file}
     non_subsecond = [graph for graph in pure
                      if all(family["median_st_s"] >= 1.0 for family in graph["frameworks"].values())]
+    sub = pure_summary(non_subsecond, pure_protocol)
+    sensitivity = {
+        "min_median_st_s_in_each_framework": 1.0,
+        "graphs": [graph["graph"] for graph in non_subsecond],
+        "geometric_mean_ratios": sub["geometric_mean_ratios"],
+    }
+    if "double_branch_comparison" in sub:
+        sensitivity["double_branch_comparison"] = sub["double_branch_comparison"]
     return {
         "archive_sha256": sha256(archive_path),
         "table_ii": {"protocol": protocol, "graphs": fair, "geometric_mean_ratios": fair_gm,
                      "geometric_mean_wall_ratios": fair_wall_gm},
         "table_vii": pure_summary(pure, pure_protocol),
-        "table_vii_sensitivity": {
-            "min_median_st_s_in_each_framework": 1.0,
-            "graphs": [graph["graph"] for graph in non_subsecond],
-            "geometric_mean_ratios": pure_summary(non_subsecond, pure_protocol)["geometric_mean_ratios"],
-        },
+        "table_vii_sensitivity": sensitivity,
     }
 
 
