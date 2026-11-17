@@ -63,6 +63,26 @@ rebuilt summary. The manuscript figure was produced with Matplotlib 3.9.2.
 python3 scripts/plot_et_pairs.py "$dir/reconstructed/summary.json" et_paired.pdf
 ```
 
+## Rebuilding Tables IV and VI from the original aggregate report
+
+The original aggregate ZIP preserves graph-level paired medians for the
+Result Tree and guided-termination campaigns. Rebuild the table rows,
+cross-graph geometric means, and direct Table VI policy ratios with:
+
+```sh
+dir=outputs/historical_paper_records
+python3 scripts/rebuild_archived_aggregate_tables.py \
+  "$dir/MBE_20261109_RESULTS_FOR_OVERLEAF.zip" "$dir/aggregates" \
+  --evidence-zip "$dir/MBE_Archived_Table_IV_VI.zip"
+```
+
+The script verifies the original archive and CSV SHA-256. The optional
+snapshot contains the exact original CSV, reconstructed tables, and checksum
+inventory. Pass the extracted `combined_13_graph_metrics.csv` to the same
+script to reproduce the tables from the snapshot. Each CSV value summarizes
+within-graph paired blocks. The native drivers below collect independent
+per-run records.
+
 ## Regenerating Tables III–VI from native checkpoints
 
 Use a dedicated output directory and choose a logical CPU available to the

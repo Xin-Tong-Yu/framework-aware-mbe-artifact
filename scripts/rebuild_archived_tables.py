@@ -200,9 +200,13 @@ def write_evidence(archive_path, destination, outputs, summary):
                 if content.decode("ascii").strip() != expected:
                     raise ValueError(f"{name}: original checksums changed before export")
                 entries[name] = content
-    entries["SHA256SUMS"] = "".join(
+    write_snapshot(destination, entries)
+
+
+def write_snapshot(destination, entries):
+    entries = {**entries, "SHA256SUMS": "".join(
         f"{digest(entries[name]).hexdigest()}  {name}\n" for name in sorted(entries)
-    ).encode("ascii")
+    ).encode("ascii")}
     destination.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(dir=destination.parent, suffix=".zip.tmp", delete=False) as temporary:
         package = Path(temporary.name)
