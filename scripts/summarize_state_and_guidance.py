@@ -141,6 +141,7 @@ def other_blocks(raw, table, runs, count):
     paired = []
     direct_modes = DIRECT_GUIDANCE if table == "vi" else {}
     direct = {framework: [] for framework in direct_modes}
+    st_midpoints = {framework: [] for framework in direct_modes}
     wall = []
     rss = {mode: [] for mode in anchors}
     for block in raw:
@@ -167,6 +168,11 @@ def other_blocks(raw, table, runs, count):
             paired.append(anchored_ratios(jobs, anchors, variants, "ms"))
         for framework, (control, variant) in direct_modes.items():
             direct[framework].append(timings[control] / timings[variant])
+        if table == "vi":
+            for position, framework in enumerate(direct_modes):
+                begin = positive(jobs[position]["ms"])
+                end = positive(jobs[-position - 1]["ms"])
+                st_midpoints[framework].append((begin + end) / 2)
         if table == "v":
             wall.append(anchored_ratios(jobs, anchors, variants, "wall_s"))
             for vector, compact in ((DOUBLE[0], DOUBLE[1]), (DOUBLE[2], DOUBLE[3])):
@@ -180,10 +186,34 @@ def other_blocks(raw, table, runs, count):
                         "median_wall_ratios": [median(values) for values in zip(*wall)]}
     if table == "vi":
         return paired, {
+            "median_st_ms": {framework: median(values) for framework, values in st_midpoints.items()},
             "direct_guidance": {framework: {"block_ratios": values, "median_ratio": median(values)}
                                 for framework, values in direct.items()},
         }
     return paired, {}
+
+
+def guidance_sensitivity(graphs):
+    minimum_st_ms = 1000
+    longer = [graph for graph in graphs if min(graph["median_st_ms"].values()) >= minimum_st_ms]
+    result = {}
+    for framework in DIRECT_GUIDANCE:
+        medians = {graph["graph"]: graph["direct_guidance"][framework]["median_ratio"]
+                   for graph in graphs}
+        paired = [ratio for graph in graphs for ratio in graph["direct_guidance"][framework]["block_ratios"]]
+        result[framework] = {
+            "faster_blocks": sum(ratio > 1 for ratio in paired),
+            "slower_blocks": sum(ratio < 1 for ratio in paired),
+            "equal_blocks": paired.count(1),
+            "geometric_mean_ratio_filtered": geometric_mean(medians[graph["graph"]] for graph in longer)
+            if longer else None,
+            "geometric_mean_ratio_without_graph": {
+                omitted: geometric_mean(ratio for graph, ratio in medians.items() if graph != omitted)
+                for omitted in medians
+            } if len(medians) > 1 else {},
+        }
+    return {"minimum_st_ms_in_both_frameworks": minimum_st_ms,
+            "filtered_graphs": [graph["graph"] for graph in longer], "frameworks": result}
 
 
 def verified_inputs(document, table, runs):
@@ -263,6 +293,7 @@ def summarize(suite, table, stats, runs):
             framework: geometric_mean(g["direct_guidance"][framework]["median_ratio"] for g in graphs)
             for framework in DIRECT_GUIDANCE
         }
+        summary["direct_guidance_sensitivity"] = guidance_sensitivity(graphs)
     return summary
 
 

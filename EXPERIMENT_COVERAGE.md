@@ -150,8 +150,11 @@ ten ST runs of each build. The JSON files include the raw paired ratios and
 checkpoint hashes. Table V also records paired wall-time ratios. Table VI
 reports direct added-policy
 comparisons in its JSON. Each block divides the ET-only time by the ET with
-policy time within the same framework. The published ST comparisons continue
-to use interpolated ST anchors. The Double ST build still runs the matching
+policy time within the same framework. The JSON counts the faster, slower,
+and equal blocks and reports geometric means after omitting each graph in
+turn. It also reports the geometric mean on the common subset where both
+frameworks have median midpoint ST references of at least one second. The ST
+comparisons continue to use interpolated ST anchors. The Double ST build still runs the matching
 eligibility scan with the terminal solver disabled. The original aggregate
 report retained per-graph medians for the direct comparisons. Their geometric
 mean gains are −3.6% for Single prefix solving with deferral and +19.1% for
