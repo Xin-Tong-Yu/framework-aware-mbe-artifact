@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Measure how the published paired medians respond to omitting one block per graph."""
+"""Measure how the published estimates respond to omitting paired blocks or graphs."""
 
 import argparse
 import json
 from math import isfinite
 from pathlib import Path
 from statistics import geometric_mean, median
+
+from summarize_pure_csv import geometric_means_without_each_graph
 
 
 TABLES = ("ii", "iii", "iv", "v", "vi", "vii")
@@ -54,10 +56,15 @@ def graph_sensitivity(ratios):
 
 def contrast_sensitivity(by_graph):
     results = {graph: graph_sensitivity(ratios) for graph, ratios in by_graph.items()}
+    medians = {graph: result["median_ratio"] for graph, result in results.items()}
+    without_graph = geometric_means_without_each_graph(medians)
+    graph_range = [min(without_graph.values()), max(without_graph.values())] if without_graph else None
     lower, upper = zip(*(r["omit_one_median_ratio_range"] for r in results.values()))
     # Each graph can omit a different block, so the suite extrema are attained
     # by simultaneously taking the minimum or maximum attainable median per graph.
-    return {"geometric_mean_ratio": geometric_mean(r["median_ratio"] for r in results.values()),
+    return {"geometric_mean_ratio": geometric_mean(medians.values()),
+            "geometric_mean_ratio_without_graph": without_graph,
+            "omit_one_graph_geometric_mean_ratio_range": graph_range,
             "omit_one_per_graph_geometric_mean_ratio_range": [geometric_mean(lower), geometric_mean(upper)],
             "graphs_positive_under_every_omission": sum(value > 1 for value in lower),
             "graphs_negative_under_every_omission": sum(value < 1 for value in upper),
@@ -96,7 +103,7 @@ def build_report(reconstructed):
             raise ValueError(f"contrast coverage differs within Table {table.upper()}")
         results[table.upper()] = {key: contrast_sensitivity({name: row[key] for name, row in by_graph.items()})
                                   for key in keys}
-    return {"description": "Exact ranges over deletion of one paired block independently in every graph.",
+    return {"description": "Sensitivity to deleting one paired block per graph or omitting one entire graph.",
             "input_sha256": reference_graphs, "tables": results}
 
 
@@ -107,7 +114,7 @@ def main():
     args = parser.parse_args()
     report = build_report(args.reconstructed)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"PASS paired-block sensitivity for {sum(map(len, report['tables'].values()))} contrasts")
+    print(f"PASS paired-block and graph sensitivity for {sum(map(len, report['tables'].values()))} contrasts")
 
 
 if __name__ == "__main__":

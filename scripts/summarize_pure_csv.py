@@ -33,6 +33,13 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def geometric_means_without_each_graph(ratios):
+    if len(ratios) < 2:
+        return {}
+    return {name: statistics.geometric_mean(value for graph, value in ratios.items() if graph != name)
+            for name in ratios}
+
+
 def verify_manifest(path, input_info, runner_sha, modes, *, csv_sha=None):
     manifest = path.with_suffix(".csv.manifest.json")
     metadata = json.loads(manifest.read_text(encoding="utf-8"))

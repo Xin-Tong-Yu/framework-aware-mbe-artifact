@@ -11,7 +11,7 @@ import re
 from statistics import geometric_mean, median
 import sys
 
-from summarize_pure_csv import ROOT, records, speedup
+from summarize_pure_csv import ROOT, geometric_means_without_each_graph, records, speedup
 
 
 CANDIDATE = ("v63_inline_st", "v63_core_st", "v63_core_d")
@@ -235,10 +235,7 @@ def guidance_sensitivity(graphs):
             "equal_blocks": paired.count(1),
             "geometric_mean_ratio_filtered": geometric_mean(medians[graph["graph"]] for graph in longer)
             if longer else None,
-            "geometric_mean_ratio_without_graph": {
-                omitted: geometric_mean(ratio for graph, ratio in medians.items() if graph != omitted)
-                for omitted in medians
-            } if len(medians) > 1 else {},
+            "geometric_mean_ratio_without_graph": geometric_means_without_each_graph(medians),
         }
     return {"minimum_st_ms_in_both_frameworks": minimum_st_ms,
             "filtered_graphs": [graph["graph"] for graph in longer], "frameworks": result}
