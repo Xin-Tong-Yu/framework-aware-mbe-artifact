@@ -332,13 +332,17 @@ work. Use the paired ordinary times for performance comparisons and the
 instrumented phase estimates to describe where terminal work is spent.
 
 The `et2_minus_et1` summary pairs the ordinary and profiled modes by block
-and sampling seed. It gives ET2 minus ET1 for ordinary search time and for
-each estimated phase separately. It reports the median, range, and number
-of blocks with an estimate for each phase. Positive time differences mean
-ET2 spent more time. A nonempty call population with zero samples gets a
-`null` estimate. Double subtracts callback time from generation and separates
-failed preparation from the total setup and complement construction time.
-These phase estimates cover instrumented work within the profiled runs.
+and sampling seed. It gives ET2 minus ET1 for ordinary search, profiled search,
+and each estimated phase. It also subtracts the ordinary difference from the
+profiled difference within each block to show how the observed ET2/ET1 gap
+shifts with profiling and timing variation. With estimates for every phase,
+it sums the exclusive phase differences and shows how much of the profiled
+search-time difference remains after that sum. This remainder combines time
+outside the measured phases with sampling error. The summary gives medians,
+ranges, and available block counts. A nonempty call population with zero
+samples gets a `null` estimate. Double subtracts callback time from generation
+and separates failed preparation from the total setup and complement
+construction time.
 
 ### Single terminal phase profiling
 

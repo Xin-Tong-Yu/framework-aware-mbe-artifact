@@ -51,20 +51,30 @@ class PhaseComparisonTests(unittest.TestCase):
         self.assertIsNone(sparse["result_tree_integration"])
         self.assertEqual(sparse["matching_with_tree_updates"], 0.0)
 
-    def test_terminal_changes_pair_ordinary_times_separately_from_estimates(self):
-        et1 = {"blocks": [self.block(1, 100, 2, 3), self.block(2, 80, None, 4)]}
-        et2 = {"blocks": [self.block(1, 120, 5, 2), self.block(2, 75, 8, 2)]}
+    def test_terminal_changes_keep_ordinary_profiled_and_sampled_deltas_separate(self):
+        et1 = {"blocks": [self.block(1, 100, 150, 2, 3), self.block(2, 80, 90, None, 4)]}
+        et2 = {"blocks": [self.block(1, 120, 145, 5, 2), self.block(2, 75, 100, 8, 2)]}
         result = double.compare_terminals(et1, et2)
         self.assertEqual(result["ordinary_search_change_ms"], {"available_blocks": 2, "median": 7.5, "range": [-5, 20]})
+        self.assertEqual(result["profiled_search_change_ms"], {"available_blocks": 2, "median": 2.5, "range": [-5, 10]})
+        self.assertEqual(result["profiled_minus_ordinary_change_ms"],
+                         {"available_blocks": 2, "median": -5.0, "range": [-25, 15]})
+        self.assertAlmostEqual(result["profiled_search_speed_ratio"]["median"], (150 / 145 + 90 / 100) / 2)
         self.assertEqual(result["estimated_phase_changes_ms"]["eligibility"],
                          {"available_blocks": 1, "median": 3, "range": [3, 3]})
         self.assertEqual(result["estimated_phase_changes_ms"]["output"]["range"], [-2, -1])
+        self.assertEqual(result["estimated_phase_total_change_ms"], {"available_blocks": 1, "median": 2, "range": [2, 2]})
+        self.assertEqual(result["profiled_change_minus_estimated_phases_ms"],
+                         {"available_blocks": 1, "median": -7, "range": [-7, -7]})
         self.assertIsNone(result["blocks"][1]["estimated_phase_changes_ms"]["eligibility"])
+        self.assertIsNone(result["blocks"][1]["estimated_phase_total_change_ms"])
+        self.assertIsNone(result["blocks"][1]["profiled_change_minus_estimated_phases_ms"])
         et2["blocks"][0]["profile_seed"] = "mismatch"
         with self.assertRaisesRegex(ValueError, "blocks or seeds differ"):
             double.compare_terminals(et1, et2)
 
     @staticmethod
-    def block(number, search, eligibility, output):
+    def block(number, search, profiled_search, eligibility, output):
         return {"block": number, "profile_seed": str(number), "control_search_ms": search,
+                "profiled_search_ms": profiled_search,
                 "exclusive_estimated_ms": {"eligibility": eligibility, "output": output}}

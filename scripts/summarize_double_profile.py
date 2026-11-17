@@ -101,13 +101,27 @@ def compare_terminals(et1, et2):
             raise ValueError("ET1 and ET2 phase definitions differ")
         changes = {phase: later[phase] - value if value is not None and later[phase] is not None else None
                    for phase, value in earlier.items()}
+        ordinary_change = second["control_search_ms"] - first["control_search_ms"]
+        profiled_change = second["profiled_search_ms"] - first["profiled_search_ms"]
+        phase_total_change = None
+        profiled_change_outside_estimates = None
+        if all(change is not None for change in changes.values()):
+            phase_total_change = sum(changes.values())
+            profiled_change_outside_estimates = profiled_change - phase_total_change
         paired.append({"block": first["block"], "profile_seed": first["profile_seed"],
-                       "ordinary_search_change_ms": second["control_search_ms"] - first["control_search_ms"],
+                       "ordinary_search_change_ms": ordinary_change,
                        "ordinary_search_speed_ratio": first["control_search_ms"] / second["control_search_ms"],
+                       "profiled_search_change_ms": profiled_change,
+                       "profiled_search_speed_ratio": first["profiled_search_ms"] / second["profiled_search_ms"],
+                       "profiled_minus_ordinary_change_ms": profiled_change - ordinary_change,
+                       "estimated_phase_total_change_ms": phase_total_change,
+                       "profiled_change_minus_estimated_phases_ms": profiled_change_outside_estimates,
                        "estimated_phase_changes_ms": changes})
+    metrics = ("ordinary_search_change_ms", "ordinary_search_speed_ratio", "profiled_search_change_ms",
+               "profiled_search_speed_ratio", "profiled_minus_ordinary_change_ms",
+               "estimated_phase_total_change_ms", "profiled_change_minus_estimated_phases_ms")
     return {"blocks": paired,
-            "ordinary_search_change_ms": observed_range(block["ordinary_search_change_ms"] for block in paired),
-            "ordinary_search_speed_ratio": observed_range(block["ordinary_search_speed_ratio"] for block in paired),
+            **{metric: observed_range(block[metric] for block in paired) for metric in metrics},
             "estimated_phase_changes_ms": {
                 phase: observed_range(block["estimated_phase_changes_ms"][phase] for block in paired)
                 for phase in paired[0]["estimated_phase_changes_ms"]}}
@@ -193,8 +207,11 @@ def profile_main(description, framework, controls, pair_check):
     for graph in graphs:
         comparison = graph["et2_minus_et1"]
         gain = 100 * (comparison["ordinary_search_speed_ratio"]["median"] - 1)
+        profiled_gain = 100 * (comparison["profiled_search_speed_ratio"]["median"] - 1)
+        timing_shift = comparison["profiled_minus_ordinary_change_ms"]["median"]
         available = {phase: item["available_blocks"] for phase, item in comparison["estimated_phase_changes_ms"].items()}
         print(f"[PAIRED_PHASES] {graph['graph']} {framework}: ordinary ET2/ET1 gain {gain:+.2f}%, "
+              f"profiled gain {profiled_gain:+.2f}%, change in ET2 minus ET1 time {timing_shift:+.3f} ms, "
               f"estimated phase pairs {available}")
         for mode, profile in graph["profiles"].items():
             blocks = profile["blocks"]
