@@ -21,7 +21,7 @@ numeric order and keeps one record per distinct pair. It assigns zero-based IDs
 to the vertices on each side in first-encounter order while scanning these
 pairs. It swaps the two columns when the first side has more incident vertices.
 
-The canonical UKWiki file declares 779 and 16,699 vertices. The edges cover
+The canonical Ukrainian Wikiquote file (`ukwiki.txt`) declares 779 and 16,699 vertices. The edges cover
 all 779 left IDs and 16,679 right IDs. The canonical Escorts file declares
 6,625 and 10,107 vertices, with one unused ID on each side. These isolate counts
 match the archived converter's dimension adjustments. The extra isolated IDs
@@ -35,20 +35,40 @@ raw edge file hashes, raw record counts, and numbers of repeated pairs collapsed
 For Forum, 33,720 raw records yield 7,089 distinct edges.
 [Raw source map](KONECT_SOURCE_MAP.csv) · [Canonical input manifest](COLLECTED_INPUT_SHA256.csv)
 
+| Graph | KONECT input |
+| --- | --- |
+| FR | [UC Irvine forum](https://konect.cc/networks/opsahl-ucforum/) |
+| WK | [Ukrainian Wikiquote edits](https://konect.cc/networks/edit-ukwikiquote/) |
+| ES | [Escorts](https://konect.cc/networks/escorts/) |
+| YT | [YouTube group memberships](https://konect.cc/networks/youtube-groupmemberships/) |
+| GH | [GitHub](https://konect.cc/networks/github/) |
+| BC | [BookCrossing implicit interactions](https://konect.cc/networks/bookcrossing_full-rating/) |
+| SO | [Stack Overflow favorites](https://konect.cc/networks/stackexchange-stackoverflow/) |
+| AC | [Actor–movie network](https://konect.cc/networks/actor-movie/) |
+| TW | [Twitter user–hashtag network](https://konect.cc/networks/munmun_twitterex_ut/) |
+| BS | [BibSonomy tag–item network](https://konect.cc/networks/bibsonomy-2ti/) |
+| IM | [IMDb via Pajek](https://konect.cc/networks/actor2/) |
+| AZ | [Amazon ratings](https://konect.cc/networks/amazon-ratings/) |
+| DB | [DBLP author–publication network](https://konect.cc/networks/dblp-author/) |
+
 ## Rebuild from KONECT archives
 
-The source map identifies the archives distributed by KONECT and the `out.*`
-members expected by the converter. After checking the archive hashes and
-extracting those members, place the edge files in one directory. The archived
-converter and the canonical input verifier can then run from the repository
-root under Linux or WSL. [KONECT network catalog](https://konect.cc/networks/)
+Place the locally acquired archives named in the source map in a directory.
+The extractor checks each archive SHA-256, streams the specified `out.*`
+member, and publishes it after its SHA-256 matches. The converter and
+canonical verifier then check the normalized graphs. Run from the repository
+root under Linux or WSL. [KONECT catalog](https://konect.cc/networks/) · [Source terms](../SOURCE_ATTRIBUTION.md#dataset-source-konect)
 
 ```sh
+python3 src/data_preparation/extract_konect_edges.py /path/to/archives outputs/konect-raw
 python3 src/data_preparation/clean_konect13.py \
   --src outputs/konect-raw --dst outputs/konect-rebuilt \
   --sorter gnu --sort-memory 96M --pad-isolates
-python3 scripts/verify_artifact.py --data-dir outputs/konect-rebuilt --full-scan
+python3 scripts/verify_artifact.py --inputs-only --data-dir outputs/konect-rebuilt --full-scan
 ```
 
-The isolate option applies to the two documented header adjustments. The
-verifier checks the output against the canonical byte sizes and SHA-256 values.
+On Windows, use `python` and `--sorter python` for the same byte format.
+The isolate option applies to the two documented header adjustments. Use
+`--graphs` for a subset in the extractor and verifier, and `--only` in the
+converter. For the native ablation launcher, rebuild into `data_clean/`.
+The pure ET launcher also accepts `DATA_DIR=outputs/konect-rebuilt`.

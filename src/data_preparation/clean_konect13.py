@@ -194,7 +194,7 @@ def prepare_compact(sorted_edges: Path, compact: Path, x_bounds, y_bounds, exp_l
 
 def create_output(compact: Path, output: Path, a: int, b: int, edges: int, swap: bool):
     l, r = (b, a) if swap else (a, b)
-    with output.open('w', encoding='ascii', buffering=1024*1024) as out, \
+    with output.open('w', encoding='ascii', newline='\n', buffering=1024*1024) as out, \
          compact.open('r', encoding='ascii', buffering=1024*1024) as inp:
         out.write(f'{l} {r} {edges}\n')
         if not swap:
