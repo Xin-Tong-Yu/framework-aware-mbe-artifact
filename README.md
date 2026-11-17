@@ -22,6 +22,8 @@ This repository provides **experiment source code, thirteen cleaned bipartite gr
 
 Linux or WSL2; Python 3.9 or later; GCC/G++ with C++17 support; CMake; Bash; and standard Unix utilities. The reference environment used Ubuntu 24.04 and GCC 13.3.0. Experiments use single-threaded execution. Runtime and memory usage depend on the input graph and machine; allow sufficient RAM and disk space. The pure-biplex BibSonomy campaign uses a 256 MiB stack allowance in its launcher.
 
+On Windows, clone from WSL or ensure the checkout uses LF for shell scripts. The repository records this setting in `.gitattributes`.
+
 ## 1. Prepare and verify the thirteen graph inputs
 
 From the repository root:
@@ -34,7 +36,7 @@ python3 scripts/check_release.py
 
 `prepare_data.py` validates all six committed archive parts, reconstructs the canonical archive, and extracts `data_clean/*.txt`. Each restored file is checked against the manifest SHA-256. The `--full-scan` option additionally validates edge counts and vertex ID ranges.
 
-All thirteen datasets were obtained from [KONECT](https://konect.cc/) and reformatted for the experiment programs, without intentional removal or sampling of graph records. The first line of each graph is **metadata** (`nL nR m`), not a graph edge. Remaining lines contain two-column bipartite edges. The algorithms use this header-aware input contract. See [SOURCE_ATTRIBUTION.md](SOURCE_ATTRIBUTION.md) for the standard KONECT citation and dataset rights.
+The thirteen experimental files represent simple bipartite graphs derived from KONECT records. Conversion retains the vertex pairs, collapses repeated pairs, and relabels the vertices. Each file starts with a graph-size header (`nL nR m`) followed by two-column edges. The data guide records exact source names, preprocessing steps, and checksums. [KONECT](https://konect.cc/) · [Data guide](data/README.md) · [Source attribution](SOURCE_ATTRIBUTION.md)
 
 The reconstructed archive, extracted graphs, local outputs, and build caches are excluded from version control.
 
@@ -45,6 +47,9 @@ python3 runners/MBE_FAIR_MBET_2024.zip selftest --cases 20
 
 python3 runners/MBE_PURE_ET1_ET2.zip selftest --cases 20 \
   --modes single_st,single_et1,single_et2,double_compact_st,double_compact_et1,double_compact_et2
+
+python3 scripts/verify_pure_terminals.py
+python3 scripts/verify_double_branch_trace.py
 
 python3 scripts/setup_paper_ablations.py --check-only
 python3 scripts/setup_paper_ablations.py
@@ -57,9 +62,12 @@ For a native small-graph oracle comparison in the expanded suite:
 
 ```bash
 bash scripts/run_paper_ablations.sh oracle 20
+bash scripts/run_paper_ablations.sh prefix-oracle
 ```
 
-The `oracle` launcher compiles the required native executables on first use, **before** the oracle's per-mode execution timeout begins.
+The launchers prepare their native executables before the oracle's per-mode timeout. The prefix oracle checks the Single matching and nonmatching deferral cases against an exhaustive closure oracle and verifies complete output after a forced solver rejection.
+
+The [Linux smoke workflow](.github/workflows/artifact-smoke.yml) checks a fresh checkout, runs the cache and resume regression tests, and exercises the packaged and staged native oracles. For the same regression tests locally on Linux or WSL, run `python3 -B -m unittest discover -s tests -v`.
 
 ## 3. Run the four-mode MBET comparison
 
@@ -81,7 +89,9 @@ python3 runners/MBE_FAIR_MBET_2024.zip batch \
   --out-dir outputs/fair_13 --resume
 ```
 
-The four modes use aligned count and order-independent XOR/SUM fingerprints; disk tuple writing is disabled in the benchmark configuration.
+The four modes use aligned count and order-independent XOR/SUM fingerprints with disk tuple writing disabled.
+
+Keep each CSV and its `.csv.manifest.json` together. With `--resume`, the runner reuses complete blocks for the same input, binaries, compiler, mode order, seed, and execution settings. It reruns an interrupted block from the beginning. Use a new output path for an older CSV without a manifest or for a changed configuration.
 
 ## 4. Run the unguided ET1/ET2 ablation
 
@@ -101,14 +111,21 @@ For the thirteen-graph campaign:
 bash scripts/run_pure_13.sh
 ```
 
-The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher validates an existing six-mode, five-block CSV before skipping it; an incomplete or inconsistent file is reported instead of silently reused.
+The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher skips a graph only when its CSV and `.csv.manifest.json` match the current input, binaries, and execution settings. It also checks six-mode, five-block coverage and agreement of counts and fingerprints. The updated runner saves each validated block in `.csv.checkpoint.json` until the final CSV and manifest are published. Keep that checkpoint to resume with the same runner ZIP and settings. Use a new output directory to retain results from a different configuration.
 
 ## 5. Run the other manuscript ablations
 
-The commands below use the pinned source bundle installed in Step 2. Each invokes its original study driver and writes its own generated outputs inside the ignored experiment workspace.
+The guided, Double state-layout, Candidate Tree, and Result Tree experiments can run in sequence on a selected logical CPU. The launcher validates each checkpoint and writes the rows for Tables III–VI.
 
 ```bash
-bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200
+bash scripts/run_state_and_guidance.sh 0 outputs/state_and_guidance
+```
+
+The pinned source bundle also provides separate study drivers.
+
+```bash
+bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200 \
+  --modes st_only v63_inline_st v63_core_st v63_core_d
 bash scripts/run_paper_ablations.sh result-cr --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh double-2x2 --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh six-mode --runs 5 --timeout 1200
@@ -123,5 +140,5 @@ See [EXPERIMENT_COVERAGE.md](EXPERIMENT_COVERAGE.md) for each experiment's sourc
 - Repeat counts and command-line switches are explicit in the commands and underlying launchers. The C++ sources and native build definitions are included, so experiments do not depend on precompiled binaries.
 - The data archive SHA-256, each graph's SHA-256, and required source-bundle SHA-256 are pinned in the repository.
 - Report elapsed times, compiler settings, CPU, memory limits, and mode configurations together. Timings will vary with hardware and operating conditions.
-- Raw experimental CSVs and logs are created during reproduction under Git-ignored output locations; no historical development results are shipped with this artifact.
+- Replays write raw CSVs and logs under Git-ignored output locations. The separate [measurement snapshot for Tables II and VII](EXPERIMENT_COVERAGE.md#rebuilding-tables-ii-and-vii-from-the-original-measurements) rebuilds the reported values from original CSVs without running enumeration.
 - The source modules adapt algorithms from ICDE 2024 MBET and SIGMOD 2026 IPS. See [SOURCE_ATTRIBUTION.md](SOURCE_ATTRIBUTION.md) for provenance and third-party reuse information.

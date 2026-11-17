@@ -8,6 +8,7 @@ correct answer set, nor does it benchmark any algorithm.
 import argparse
 import csv
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -24,7 +25,6 @@ REQUIRED = {"graph", "block", "mode", "kind", "time_s", "count", "fingerprint", 
 
 
 def validate(path, expected_graph=None):
-    errors = []
     try:
         with path.open(newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
@@ -34,6 +34,13 @@ def validate(path, expected_graph=None):
     except (OSError, UnicodeError, csv.Error) as exc:
         return [str(exc)]
 
+    return validate_rows(rows, expected_graph)
+
+
+def validate_rows(rows, expected_graph=None):
+    if rows and not REQUIRED.issubset(rows[0]):
+        return ["missing required CSV columns: " + ", ".join(sorted(REQUIRED - rows[0].keys()))]
+    errors = []
     if len(rows) != 30:
         errors.append(f"expected 30 rows, found {len(rows)}")
     seen = set()
@@ -58,9 +65,9 @@ def validate(path, expected_graph=None):
                 raise ValueError("block out of range")
             if not graph:
                 raise ValueError("missing graph name")
-            if count <= 0 or not math.isfinite(time_s) or time_s < 0:
+            if count <= 0 or not math.isfinite(time_s) or time_s <= 0:
                 raise ValueError("invalid count or time")
-            if not fp or "|" not in fp:
+            if not re.fullmatch(r'[0-9]+\|[0-9]+', fp):
                 raise ValueError("invalid fingerprint")
             if tg not in ("0", "false"):
                 raise ValueError("pure ablation must have TG disabled")

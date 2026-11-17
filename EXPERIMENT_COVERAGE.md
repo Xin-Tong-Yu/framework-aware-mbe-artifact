@@ -26,7 +26,7 @@ bash scripts/run_paper_ablations.sh check-source
 
 The source archive for the additional studies is `src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip`; its SHA-256 is pinned and checked by `scripts/setup_paper_ablations.py`. The dispatcher `run_experiments.sh` in that archive retains the native source modules and compile settings for each study. The archive is extracted into `outputs/paper_suite/framework_ablations/`.
 
-For a lightweight native correctness test, use `bash scripts/run_paper_ablations.sh oracle 20`. The two direct Python-ZIP runners also provide `selftest` commands in the root README.
+For a lightweight native correctness test, use `bash scripts/run_paper_ablations.sh oracle 20`. Run `bash scripts/run_paper_ablations.sh prefix-oracle` to verify Single's matching and nonmatching prefix solvers on two constructed 17-by-17 graphs. The check compares complete output sets against an exhaustive closure oracle, rejects duplicates, and checks that a restrictive answer cap takes the fallback path on the cycle fixture. The two direct Python-ZIP runners also provide `selftest` commands in the root README.
 
 ## Interpretation and result protocol
 
@@ -34,6 +34,373 @@ For a lightweight native correctness test, use `bash scripts/run_paper_ablations
 
 **Timing.** Single and Double internal search timers may cover different portions of processing. The MBET-family, guided ablations, pure-ET study, and native IPS count-aggregation comparison also have experiment-specific reporting contracts. Compare timings within matched runs of the same study and report compiler and machine information.
 
-**Input integrity.** The graph files use `nL nR m` as their header; it is not an edge. SHA-256 manifests identify the exact canonical inputs. The archive part manifests permit byte-for-byte reconstruction from GitHub.
+**Input integrity.** The graph files start with the `nL nR m` header. SHA-256 manifests identify the exact canonical inputs. Both the split artifact archive and the documented conversion of the original KONECT archives reproduce all thirteen input files byte for byte. [Data guide](data/README.md)
 
-**Generated results.** The repository ships sources, exact input graphs, and experiment drivers; per-run measurement CSVs and machine-specific logs are produced when running the commands and are not stored in Git.
+**Generated results.** The repository ships sources, exact input graphs, and experiment drivers. Per-run measurements are kept separately from Git.
+
+## Rebuilding Tables II and VII from the original measurements
+
+With the original code-and-results ZIP and original Bitmap Guard runner ZIP, run:
+
+```sh
+dir=outputs/historical_paper_records
+python3 scripts/rebuild_archived_tables.py \
+  "$dir/MBE_GITHUB_CODE_AND_RESULTS_NO_DATA.zip" \
+  "$dir/MBE_BIPLEX_PURE_1V2_BITMAP_GUARD.zip" "$dir/reconstructed"
+```
+
+The script checks 260 MBET-family and 390 pure ET records against the canonical input identities and reference counts. It checks that MBET-family executable hashes, flags, and run settings agree across graphs, and matches the Bitmap Guard runner ZIP to the per-graph recorded hashes. It emits the rows of Tables II and VII plus a JSON file with five paired ratios for each contrast, archive and CSV hashes, and the Table VII sensitivity analysis restricted to graphs with at least one second of median ST time in both frameworks. The MBET-family summary includes whole-process wall-time ratios from the same runs. The original pure records identify the runner ZIP. New replay manifests also identify each mode's binary.
+
+For Double, the JSON retains the paired ET1 and ET2 branch counts where they
+were recorded. The relative reduction uses ET1 calls as the reference. The
+summary identifies graphs with fewer ET2 calls in all five blocks and which
+of those have a slower ET2 paired median. That comparison also appears in the
+subset with median ST time of at least one second in both frameworks.
+
+Append `--evidence-zip MBE_Archived_Table_II_VII.zip` to export the verified
+CSV files and summaries with a SHA-256 inventory. This snapshot contains
+measurement records and checksums. Its README gives the command that
+regenerates the tables using the recorded historical runner hash.
+
+Generate the vector figure for the direct ET2/ET1 comparison from the
+rebuilt summary. The manuscript figure was produced with Matplotlib 3.9.2.
+
+```sh
+python3 scripts/plot_et_pairs.py "$dir/reconstructed/summary.json" et_paired.pdf
+```
+
+## Rebuilding Tables IV and VI from the original aggregate report
+
+The original aggregate ZIP preserves graph-level paired medians for the
+Result Tree and guided-termination campaigns. Rebuild the table rows,
+cross-graph geometric means, and direct Table VI policy ratios with:
+
+```sh
+dir=outputs/historical_paper_records
+python3 scripts/rebuild_archived_aggregate_tables.py \
+  "$dir/MBE_20261109_RESULTS_FOR_OVERLEAF.zip" "$dir/aggregates" \
+  --evidence-zip "$dir/MBE_Archived_Table_IV_VI.zip"
+```
+
+The script verifies the original archive and CSV SHA-256. The optional
+snapshot contains the exact original CSV, reconstructed tables, and checksum
+inventory. Pass the extracted `combined_13_graph_metrics.csv` to the same
+script to reproduce the tables from the snapshot. Each CSV value summarizes
+within-graph paired blocks. The native drivers below collect independent
+per-run records.
+
+Compare an original checkpoint directory with a five-block replay of Tables
+III–VI using `scripts/compare_native_replay.py`. Pass the original directory,
+the replay's `framework_ablations` directory, the lowercase table number, and
+a JSON output path. For Tables IV and VI, the original aggregate ZIP or its
+CSV entry is also accepted. Use `--graphs` to compare a subset with complete
+replay blocks. Both geometric means use that same subset. The report gives
+the speedup differences in percentage points and records input and binary
+identities. A comparison of native checkpoints also records whether each
+binary SHA-256 agrees across runs. It verifies the original and replayed
+counts, XOR and sum for each compatible fingerprint group before comparing
+timings. The aggregate report contains medians and does not provide output
+fingerprints for this cross-campaign check.
+
+For native Table VI checkpoints the report also compares the recorded terminal,
+prefix, deferral, and pivot counters by mode. It matches the complete counter
+observations regardless of run order. If an older checkpoint lacks a counter,
+the report lists it as unavailable for that mode. The fully matched run count
+requires all counters to be present. The report also gives the number of
+faster, slower, and tied ET+policy blocks against ET on the same graph subset
+in both batches. These counts are shown for each ET and ET+policy execution
+order. For timing sensitivity, the report records the last-to-first ST time
+ratio and divides each ET+policy/ST factor by the ET/ST factor from the
+same block. Both factors use the position-specific interpolated ST time.
+This sensitivity check assumes ST drift scales the two measurements within
+the block. The main policy contrast still uses the direct pair of times.
+
+## Regenerating Tables III–VI from native checkpoints
+
+Use a dedicated output directory and choose a logical CPU available to the
+process. The runner executes the guided, Double representation, Candidate
+Tree, and Result Tree experiments in sequence. It applies the recorded mode
+definitions and five blocks on each of the thirteen canonical graph inputs.
+
+```sh
+dir=outputs/icde_eab_state_ablations
+bash scripts/run_state_and_guidance.sh 0 "$dir" 2>&1 | tee state-and-guidance.log
+```
+
+The runner stages a verified source bundle under the output directory and
+keeps the native binaries, reports, and checkpoints there. Repeat with the
+same CPU, runtime environment, and directory to reuse completed blocks.
+The runner checks its saved `protocol.txt` before resuming. A changed run
+configuration uses a new output directory so the original records stay available.
+The launcher reports each incomplete study and continues through the remaining
+studies. It exits with a failure status if any table still lacks validated blocks.
+For Table VI, a native failure or fingerprint mismatch stops work on that graph
+and the driver continues with the remaining graphs. Resuming with
+`--retry-failed` retains complete blocks by their original seeds and measures
+the unresolved blocks again. The installer stages the revised driver over the
+pinned archive. Earlier checkpoints remain compatible when their executable,
+input, and run metadata match.
+For Table III, the driver records the CPU, effective stack limit, timeout,
+block count, mode flags, and randomization settings. It uses a monotonic clock
+for the paired anchors and retains the requested stack allowance when it is
+already at least 64 MiB. Earlier checkpoints remain readable by the table
+summarizer. New measurements use a separate campaign directory when the older
+checkpoint lacks the timing metadata required for resumption.
+For Table V, the driver checks equal Vector/Compact branch counts in both
+terminal settings before accepting each block. Every ST anchor also requires
+a peak RSS record from GNU time. A failed block stops the current graph.
+Resumption retains the other validated blocks by their original seeds.
+
+Rebuild a specific table without rerunning the benchmark by passing its
+Roman numeral in lowercase:
+
+```sh
+python3 scripts/summarize_state_and_guidance.py "$dir/framework_ablations" vi "$dir"
+```
+
+The summarizer checks graph identities, complete blocks, positive times,
+reference counts, and compatible fingerprints. The Table III JSON also
+compares successive builds directly within each block, along with the
+comparison of the combined Cursor and Pre-fork changes against Inline alone.
+
+Run `python3 scripts/verify_single_candidate_forks.py` to check the four
+Table III modes against a closure oracle. It checks all 511 nonempty edge
+sets on up to three vertices per side and 16 larger generated graphs.
+An isolated copy of the archived native source records actual Cursor
+skips and checks the Pre-fork guard against ordinary fork construction.
+These checks run separately from the timing builds.
+
+The fifth speedup column of
+Table IV divides inline/no-CR by inline+CR search time in each block. The
+archived aggregate report gives a +7.7% geometric mean for that comparison.
+The Table IV JSON divides that within-block ratio by the CR ratio under the
+flat layout to quantify the interaction with Result Tree layout.
+Run `python3 scripts/verify_result_layout.py` to check the four native builds
+with both tuple emission and checksum-only reporting. It uses the original
+Table IV build flags and input adapter on two multiword fixtures and checks
+each output against the exact bicliques and independent checksums.
+
+Table V additionally checks equal branch counts for each matched Vector/Compact
+comparison. Run `python3 scripts/verify_double_branch_trace.py` to compare its
+complete selected, candidate, and excluded state sequences and pivot choices
+on small graphs in both terminal settings. It also compares exact output
+sets against a closure oracle. The script instruments a temporary copy of the
+pinned sources for this check. The memory cells are medians of whole-process peak RSS over the
+ten ST runs of each build. The JSON files include the raw paired ratios and
+checkpoint hashes. Table V also records paired wall-time ratios. Table VI
+reports direct added-policy
+comparisons in its JSON. Each block divides the ET-only time by the ET with
+policy time within the same framework. The JSON counts the faster, slower,
+and equal blocks and reports geometric means after omitting each graph in
+turn. It also reports the geometric mean on the common subset where both
+frameworks have median midpoint ST references of at least one second. The ST
+comparisons continue to use interpolated ST anchors. The Double ST build still runs the matching
+eligibility scan with the terminal solver disabled. The original aggregate
+report retained per-graph medians for the direct comparisons. Their geometric
+mean gains are −3.6% for Single prefix solving with deferral and +19.1% for
+the Double matching-oriented pivot. Recovering the individual block ratios
+requires raw checkpoints or a replay. Each LaTeX file contains the generated
+table rows.
+
+## Sensitivity to omitted blocks and graphs
+
+After the offline archive verifier reconstructs the tables, run from the
+repository root:
+
+```sh
+python3 scripts/summarize_paired_sensitivity.py \
+  /path/to/extracted-evidence/reconstructed paired_block_sensitivity.json
+```
+
+Use the rebuilt search contrasts for Tables II–VII, the direct increments
+and policy contrasts, and the recorded whole-process time ratios for Table V.
+The report gives each graph's five leave-one-block-out medians and the exact
+suite geometric-mean extrema when each graph may omit a different block.
+The range describes sensitivity to the recorded blocks. The unit of deletion
+is a whole within-graph block, including its timed reference runs.
+The report also recomputes the geometric mean after omitting each graph in
+turn, keeping the five original blocks for every remaining graph.
+
+For Table II the report also compares ST-noCR directly to MBET and MBETM.
+These ratios cancel the same ST+CR time within each block, keeping tuple
+materialization and checksum semantics matched in the direct comparisons.
+
+`python3 scripts/verify_fair_reporting.py` checks all four Table II modes
+with and without tuple emission. The fixtures use a quotient-graph closure
+oracle to cover completions that span multiple bitmap words in both input
+orientations. The checksum-only runs are checked against an independent
+implementation of the fingerprint computed on the expected tuples.
+
+## Regenerating the unguided ET table
+
+Run the thirteen-graph campaign and keep each CSV with its run manifest. Use
+the following commands from the repository root. Choose an available CPU
+if CPU 0 is outside the process's affinity mask.
+
+```sh
+taskset -c 0 env MBE2_OPT=O3 OUT_DIR=outputs/icde_eab_pure_13 bash scripts/run_pure_13.sh
+python3 scripts/summarize_pure_csv.py outputs/icde_eab_pure_13 \
+  --json outputs/icde_eab_pure_13/summary.json \
+  --latex outputs/icde_eab_pure_13/table_rows.tex
+```
+
+The summarizer checks the runner and input hashes, the CSV hash, matching
+execution settings across graphs, output fingerprints, and the reference
+biclique counts from Table I. The JSON stores all five paired ratios per
+contrast. The table uses the median ratio within each graph and the
+geometric mean of those ratios across graphs. The direct ET2/ET1 contrast
+is computed from the two times in each block.
+
+To compare Table VII with the archive, provide the historical runner ZIP
+recorded in the archive and the snapshot of the runner used for the replay.
+
+```sh
+python3 scripts/compare_pure_replay.py archive.zip original-runner.zip \
+  outputs/icde_eab_pure_13 outputs/icde_eab_pure_13/runner_snapshot.zip \
+  outputs/icde_eab_pure_13/original_replay_comparison.json
+```
+
+The comparison checks counts, fingerprints, terminal attempts and hits,
+and the Double branch and terminal output counters for every block and mode.
+It records native source differences, CSV hashes, and paired timing ratios.
+Use `--graphs` with a list of graph names for a verified subset of a replay.
+
+The current pure runner source checkpoints complete paired blocks in
+`.csv.checkpoint.json`. Resume with the same inputs, runner ZIP, mode
+order, seed, and execution settings. The final CSV and manifest are
+published after all blocks pass validation. Repeated publication uses
+the saved blocks if a process exits between the two final file writes.
+Run the interruption regressions in Linux or WSL with
+`python3 -m unittest discover -s tests -p test_pure_resume.py`.
+
+### Double eligibility-scan ablation
+
+Double ST in the original pure campaign evaluates the degree-two eligibility
+predicate before continuing ordinary recursion. The auxiliary `double-gate`
+matrix compares no scan, a degree-one scan, and a degree-two scan with solving
+disabled in all three modes. The ET1 and ET2 modes keep classic pivots and
+per-result fingerprints, and provide paired comparisons against the same
+scan threshold. The runner checks equal branch counts and zero terminal
+calls in the three ST controls.
+
+Run the supplemental matrix separately from the primary timing campaign.
+YouTube is a short case, GitHub has a large output set, and DBLP is a large,
+sparse input with comparatively short search time. Retain the derived runner
+ZIP with its raw records.
+
+```sh
+dir=outputs/icde_eab_double_gate
+python3 scripts/package_pure_gate.py "$dir/MBE_PURE_ET_GATE.zip"
+ulimit -s 262144
+for graph in youtube github dblp; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$dir/MBE_PURE_ET_GATE.zip" all "data_clean/$graph.txt" \
+    --modes double-gate --repeats 5 --out "$dir/$graph.csv" --resume
+done
+python3 scripts/summarize_double_gate.py "$dir" --json "$dir/summary.json"
+```
+
+### Double terminal phase profiling
+
+Run the `double-profile` matrix separately on GitHub, DBLP, and Twitter.
+Each of the five blocks pairs the ordinary ST, ET1, and ET2 runs with the
+same modes instrumented. All six modes use Compact state, classic pivots,
+and per-result fingerprints. The three instrumented modes select about one
+in 64 invocations by hashing the eligibility or terminal call ordinal.
+
+```sh
+dir=outputs/icde_eab_double_profile
+runner="$dir/MBE_PURE_ET_PROFILE.zip"
+python3 scripts/package_pure_gate.py "$runner"
+ulimit -s 262144
+for graph in github dblp twitter; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$runner" all "data_clean/$graph.txt" \
+    --modes double-profile --repeats 5 --out "$dir/$graph.csv" --resume || exit
+done
+python3 scripts/summarize_double_profile.py "$dir" --runner "$runner" --json "$dir/summary.json"
+```
+
+The JSON records the ratio of instrumented to ordinary time per block,
+sample sizes, measured phase sums, and phase estimates. An estimate scales
+the measured sum by total calls divided by sampled calls for that phase.
+Each block derives a new sampling seed from the campaign seed and block
+number. The profiled modes in a block use the same seed. Manifests and CSVs
+record these seeds so a resumed block retains the same sampling design.
+New phase experiments shuffle the mode order in each odd-numbered block
+and reverse that order in the following block. Every pair of modes appears
+in both relative orders across each two-block pair. The fifth block uses a
+fresh shuffle. Manifests record the paired reversal design and the
+summarizers verify it and report the full execution order per block.
+Earlier runs used independent shuffles and retain their original orders.
+Eligibility includes the exclusion check and degree scan. Setup, complement
+construction, component decomposition, and generation cover the timed parts
+of terminal attempts. Generation includes the terminal output callback.
+Fallback time is the setup and construction time in failed attempts, which
+is already in those two phase sums. The callback timing covers final count
+and fingerprint accumulation. Incremental vertex hashing remains in solver
+work. Use the paired ordinary times for performance comparisons and the
+instrumented phase estimates to describe where terminal work is spent.
+
+The `et2_minus_et1` summary pairs the ordinary and profiled modes by block
+and sampling seed. It gives ET2 minus ET1 for ordinary search, profiled search,
+and each estimated phase. It also subtracts the ordinary difference from the
+profiled difference within each block to show how the observed ET2/ET1 gap
+shifts with profiling and timing variation. With estimates for every phase,
+it sums the exclusive phase differences and shows how much of the profiled
+search-time difference remains after that sum. This remainder combines time
+outside the measured phases with sampling error. The summary gives medians,
+ranges, and available block counts. A nonempty call population with zero
+samples gets a `null` estimate. Double subtracts callback time from generation
+and separates failed preparation from the total setup and complement
+construction time.
+
+Pass the original evidence ZIP and the original Bitmap Guard runner to
+either phase summarizer to check that the ordinary and profiled runs match
+the search work recorded for Table VII. The comparison verifies each mode
+and block against the original counts, fingerprints and terminal counters.
+For Double it also compares branch and terminal-output counts. The output
+keeps the original ET2 minus ET1 time differences separate from the phase
+experiment's ordinary and profiled differences.
+
+```sh
+python3 scripts/summarize_double_profile.py "$dir" --runner "$runner" \
+  --original-archive outputs/historical_paper_records/MBE_Archived_Table_II_VII.zip \
+  --original-runner outputs/historical_paper_records/MBE_BIPLEX_PURE_1V2_BITMAP_GUARD.zip \
+  --graphs github --json "$dir/github_with_original.json"
+```
+
+### Single terminal phase profiling
+
+Use the same supplemental ZIP and substitute `--modes single-profile` on the
+same three inputs. Use a separate output directory for this matrix. Its ST,
+ET1, and ET2 modes use the same state settings and per-result fingerprinting
+with TG and CR disabled. The profiler samples roughly one in 64 selector,
+terminal, and final output calls using their respective ordinals.
+
+```sh
+dir=outputs/icde_eab_single_profile
+runner="$dir/MBE_PURE_ET_PROFILE.zip"
+python3 scripts/package_pure_gate.py "$runner"
+ulimit -s 262144
+for graph in github dblp twitter; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$runner" all "data_clean/$graph.txt" \
+    --modes single-profile --repeats 5 --out "$dir/$graph.csv" --resume || exit
+done
+python3 scripts/summarize_single_profile.py "$dir" --runner "$runner" --json "$dir/summary.json"
+```
+
+The matching resolver streams its enumeration into the Result Tree, so
+generation and insertion are timed together. ET2 records MIS generation and
+Result Tree integration separately, with verification and other work given
+by the remainder of total attempt time. Failed-attempt time is contained
+in the total attempt time. The final output callback samples filtering,
+counting, and fingerprinting after the Result Tree has merged entries from
+terminal and ordinary search.
+
+Single uses the same `et2_minus_et1` format. It keeps failed-attempt time
+among the nested raw counters because it can include generation. The
+nonoverlapping summary uses selector, matching with tree integration,
+MIS generation, Result Tree integration, other terminal work, and the
+final output callback. Phases absent from an algorithm contribute zero.

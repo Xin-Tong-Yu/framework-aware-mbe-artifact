@@ -9,11 +9,19 @@
 #include <cassert>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 
 #ifndef IPS_ET_TARGET_DEGREE
 #define IPS_ET_TARGET_DEGREE 2
 #endif
+#if defined(IPS_DISABLE_ET_GATE) && !defined(IPS_DISABLE_ET)
+#error "The terminal gate can be disabled only when early termination is off"
+#endif
 static_assert(IPS_ET_TARGET_DEGREE == 1 || IPS_ET_TARGET_DEGREE == 2, "terminal degree must be 1 or 2");
+#if defined(IPS_ET_PROFILE) && !defined(IPS_ET_PROFILE_SAMPLE_INTERVAL)
+#define IPS_ET_PROFILE_SAMPLE_INTERVAL 1
+#endif
 
 class IPS_t {
 
@@ -25,10 +33,13 @@ private:
     uint64_t twoBiplexPathComponents = 0, twoBiplexCycleComponents = 0;
     uint64_t twoBiplexNonmatchingHits = 0, twoBiplexScanPairs = 0;
 #ifdef IPS_ET_PROFILE
+    static_assert(IPS_ET_PROFILE_SAMPLE_INTERVAL > 0, "profile sample interval must be positive");
+    uint64_t profSeed=0;
     uint64_t profGateCalls=0, profGatePasses=0, profGateNs=0;
     uint64_t profSetupNs=0, profBuildNs=0, profDecompNs=0, profGenerateNs=0;
     uint64_t profTerminalCalls=0, profTerminalCandidateSum=0, profMaxCandidate=0;
-    uint64_t profFallbacks=0;
+    uint64_t profGateSamples=0, profTerminalSamples=0, profEmitNs=0;
+    uint64_t profFallbacks=0, profFallbackNs=0;
 #endif
 #ifdef IPS_ET2_PATTERN_CACHE
     uint64_t patternComponentUses=0, patternChoicesVisited=0;
@@ -75,6 +86,22 @@ private:
         x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
         return x ^ (x >> 31);
     }
+
+#ifdef IPS_ET_PROFILE
+    using ProfileTime = std::chrono::steady_clock::time_point;
+
+    bool profileSample(uint64_t ordinal) const {
+        return mix64(ordinal ^ profSeed) % IPS_ET_PROFILE_SAMPLE_INTERVAL == 0;
+    }
+
+    static ProfileTime profileNow(bool sampled) {
+        return sampled ? std::chrono::steady_clock::now() : ProfileTime{};
+    }
+
+    static uint64_t profileNs(ProfileTime begin, ProfileTime end) {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+    }
+#endif
 
     uint64_t vertexToken(int32_t side, int32_t u) const {
         return mix64((static_cast<uint64_t>(side) << 63) ^ static_cast<uint32_t>(u));
@@ -129,12 +156,22 @@ private:
         const int n=n0+n1;
         if (n==0) return false;
 #ifdef IPS_ET_PROFILE
-        const auto pnow=[](){return std::chrono::steady_clock::now();};
-        const auto nanos=[](auto a,auto b)->uint64_t {return std::chrono::duration_cast<std::chrono::nanoseconds>(b-a).count();};
-        const auto pStart=pnow();
-        ++profTerminalCalls; profTerminalCandidateSum+=static_cast<uint64_t>(n);
-        profMaxCandidate=std::max(profMaxCandidate,static_cast<uint64_t>(n));
+        const bool sampled = profileSample(++profTerminalCalls);
+        profTerminalSamples += sampled;
+        profTerminalCandidateSum += static_cast<uint64_t>(n);
+        profMaxCandidate = std::max(profMaxCandidate, static_cast<uint64_t>(n));
+        const auto pStart = profileNow(sampled);
 #endif
+        const auto emitTerminalResult = [&]() {
+            ++etOutputCount;
+#ifdef IPS_ET_PROFILE
+            const auto begin = profileNow(sampled);
+#endif
+            emitCurrentResult();
+#ifdef IPS_ET_PROFILE
+            profEmitNs += profileNs(begin, profileNow(sampled));
+#endif
+        };
         struct V { int32_t side, id; };
 #ifdef IPS_ET2_SCRATCH_REUSE
         // Terminal calls are sequential in this single-threaded enumerator.
@@ -156,9 +193,18 @@ private:
         std::vector<std::vector<int>> adj(n);
 #endif
 #ifdef IPS_ET_PROFILE
-        const auto pSetupEnd=pnow();
-        profSetupNs+=nanos(pStart,pSetupEnd);
+        const auto pSetupEnd = profileNow(sampled);
+        profSetupNs += profileNs(pStart, pSetupEnd);
 #endif
+        const auto buildFallback = [&]() {
+#ifdef IPS_ET_PROFILE
+            const auto end = profileNow(sampled);
+            ++profFallbacks;
+            profBuildNs += profileNs(pSetupEnd, end);
+            profFallbackNs += profileNs(pStart, end);
+#endif
+            return false;
+        };
         bool hasDegreeTwo=false;
         // The ndC counters were computed by the ordinary IPS state update.
         // Rebuild the precise (at most two) missing endpoints only after the
@@ -220,22 +266,19 @@ private:
                 if (!edge) {
                     addMissing(w);
                     if (adj[i].size()>2 || adj[w].size()>2)
-                        return false;  // verified fallback: no result committed
+                        return buildFallback();  // no result committed
                 }
             }
         }
         for (int i=0;i<n;++i) {
             if (static_cast<int>(adj[i].size()) != ndC[verts[i].side][verts[i].id]) {
-#ifdef IPS_ET_PROFILE
-                ++profFallbacks;
-#endif
-                return false; // safeguard stale or inconsistent counters
+                return buildFallback(); // safeguard stale or inconsistent counters
             }
             if (adj[i].size()==2) hasDegreeTwo=true;
         }
 #ifdef IPS_ET_PROFILE
-        const auto pBuildEnd=pnow();
-        profBuildNs+=nanos(pSetupEnd,pBuildEnd);
+        const auto pBuildEnd = profileNow(sampled);
+        profBuildNs += profileNs(pSetupEnd, pBuildEnd);
 #endif
 #ifdef IPS_ET2_FAST_MATCHING_COMPONENTS
         // A matching is a special case of max-degree-two complement. Retain
@@ -253,12 +296,15 @@ private:
                 else if (i<adj[i][0]) pairs.emplace_back(i,adj[i][0]);
             }
             twoBiplexPathComponents+=pairs.size();
+#ifdef IPS_ET_PROFILE
+            const auto pDecompEnd = profileNow(sampled);
+            profDecompNs += profileNs(pBuildEnd, pDecompEnd);
+#endif
             auto enumeratePairs=[&](auto&& self,size_t idx)->void {
                 if (idx==pairs.size()) {
                     if (currentResult[0].size()>=static_cast<size_t>(lrs[0]) &&
                         currentResult[1].size()>=static_cast<size_t>(lrs[1])) {
-                        ++etOutputCount;
-                        emitCurrentResult();
+                        emitTerminalResult();
                     }
                     return;
                 }
@@ -274,7 +320,7 @@ private:
             while (currentResult[0].size()>old0) removeResultVertex(0);
             while (currentResult[1].size()>old1) removeResultVertex(1);
 #ifdef IPS_ET_PROFILE
-            profGenerateNs+=nanos(pBuildEnd,pnow());
+            profGenerateNs += profileNs(pDecompEnd, profileNow(sampled));
 #endif
             return true;
         }
@@ -342,8 +388,8 @@ private:
         }
         if (hasDegreeTwo) ++twoBiplexNonmatchingHits;
 #ifdef IPS_ET_PROFILE
-        const auto pDecompEnd=pnow();
-        profDecompNs+=nanos(pBuildEnd,pDecompEnd);
+        const auto pDecompEnd = profileNow(sampled);
+        profDecompNs += profileNs(pBuildEnd, pDecompEnd);
 #endif
         // At each component, generate exactly the maximal independent sets
         // using independent+dominating constraints on a path/cycle.  Maximal
@@ -357,8 +403,7 @@ private:
 #endif
                 if (currentResult[0].size()>=static_cast<size_t>(lrs[0]) &&
                     currentResult[1].size()>=static_cast<size_t>(lrs[1])) {
-                    ++etOutputCount;
-                    emitCurrentResult();
+                    emitTerminalResult();
                 }
                 return;
             }
@@ -445,11 +490,11 @@ private:
             assign(assign,0);
         };
         cross(cross,0);
-#ifdef IPS_ET_PROFILE
-        profGenerateNs+=nanos(pDecompEnd,pnow());
-#endif
         while(currentResult[0].size()>old0)removeResultVertex(0);
         while(currentResult[1].size()>old1)removeResultVertex(1);
+#ifdef IPS_ET_PROFILE
+        profGenerateNs += profileNs(pDecompEnd, profileNow(sampled));
+#endif
         return true;
     }
 
@@ -663,38 +708,34 @@ private:
             return;
         }
 
-        // Only the degree-two 2-biplex terminal is used in this experiment.
-        // The old matching terminal / binomial counter is unreachable here.
+        // The historical ST control still measures eligibility without solving.
+#ifndef IPS_DISABLE_ET_GATE
 #ifdef IPS_ET_PROFILE
-        const auto pg0=std::chrono::steady_clock::now();
-        ++profGateCalls;
+        const bool sampled = profileSample(++profGateCalls);
+        profGateSamples += sampled;
+        const auto pg0 = profileNow(sampled);
 #endif
         bool terminalEligible = S[0].XIsEmpty() && S[1].XIsEmpty();
         if (terminalEligible) {
             for (int t=0;t<2 && terminalEligible;++t)
                 for (int i=S[t].c;i<S[t].r;++i)
                     if (ndC[t][S[t][i]]>IPS_ET_TARGET_DEGREE) {terminalEligible=false;break;}
-            if (terminalEligible) {
-#ifdef IPS_ET_PROFILE
-                ++profGatePasses;
-#endif
-                ++etEligible;
-#ifdef IPS_ET_PROFILE
-                profGateNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now()-pg0).count();
-#endif
-#ifndef IPS_DISABLE_ET
-                if (enumerateTwoBiplexTerminal()) {
-                    ++et;
-                    return;
-                }
-#endif
-            }
         }
 #ifdef IPS_ET_PROFILE
-        if (!terminalEligible)
-            profGateNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now()-pg0).count();
+        profGateNs += profileNs(pg0, profileNow(sampled));
+#endif
+        if (terminalEligible) {
+#ifdef IPS_ET_PROFILE
+            ++profGatePasses;
+#endif
+            ++etEligible;
+#ifndef IPS_DISABLE_ET
+            if (enumerateTwoBiplexTerminal()) {
+                ++et;
+                return;
+            }
+#endif
+        }
 #endif
 
         /*
@@ -1173,6 +1214,15 @@ public:
         totalMaximalCount = et = etEligible = zt = tot = etOutputCount = 0;
         branchCalls = leafCalls = pivotFallback = 0;
         twoBiplexPathComponents = twoBiplexCycleComponents = twoBiplexNonmatchingHits = twoBiplexScanPairs = 0;
+#ifdef IPS_ET_PROFILE
+        profGateCalls = profGatePasses = profGateNs = 0;
+        profSetupNs = profBuildNs = profDecompNs = profGenerateNs = 0;
+        profTerminalCalls = profTerminalCandidateSum = profMaxCandidate = 0;
+        profGateSamples = profTerminalSamples = profEmitNs = 0;
+        profFallbacks = profFallbackNs = 0;
+        const char *seed = std::getenv("MBE_ET_PROFILE_SEED");
+        profSeed = seed ? std::stoull(seed) : 0;
+#endif
         enumerationChecksum = currentResultHash = 0;
         enumerationSetXor = enumerationSetSum = 0;
         tgPivotX = tgPivotC = 0;
@@ -1375,9 +1425,13 @@ public:
         printf("Terminal_Target_Degree: %d\n", IPS_ET_TARGET_DEGREE);
         printf("2Biplex_Terminal: path/cycle MIS with max-defect-%d gate\n",IPS_ET_TARGET_DEGREE);
 #ifdef IPS_ET_PROFILE
+        printf("ET_Profiler_Sample_Interval: %d\n", IPS_ET_PROFILE_SAMPLE_INTERVAL);
+        printf("ET_Profiler_Seed: %lu\n",profSeed);
         printf("ET_Profiler_Gate_Calls: %lu\n",profGateCalls);
         printf("ET_Profiler_Gate_Passes: %lu\n",profGatePasses);
+        printf("ET_Profiler_Gate_Samples: %lu\n",profGateSamples);
         printf("ET_Profiler_Terminal_Calls: %lu\n",profTerminalCalls);
+        printf("ET_Profiler_Terminal_Samples: %lu\n",profTerminalSamples);
         printf("ET_Profiler_Fallbacks: %lu\n",profFallbacks);
         printf("ET_Profiler_Total_Candidates: %lu\n",profTerminalCandidateSum);
         printf("ET_Profiler_Max_Candidates: %lu\n",profMaxCandidate);
@@ -1386,6 +1440,8 @@ public:
         printf("ET_Profiler_Build_ms: %.6f\n",profBuildNs / 1e6);
         printf("ET_Profiler_Decompose_ms: %.6f\n",profDecompNs / 1e6);
         printf("ET_Profiler_Generate_ms: %.6f\n",profGenerateNs / 1e6);
+        printf("ET_Profiler_Emit_ms: %.6f\n",profEmitNs / 1e6);
+        printf("ET_Profiler_Fallback_ms: %.6f\n",profFallbackNs / 1e6);
 #endif
 #ifdef IPS_ET2_PATTERN_CACHE
         printf("ET_Pattern_Components: %lu\n",patternComponentUses);

@@ -7,11 +7,17 @@ the user does not have to unzip the distribution.
 """
 import argparse
 import csv
+import fcntl
+from functools import lru_cache
 import hashlib
+import json
+import math
 import os
 from pathlib import Path
+import platform
 import random
 import re
+import resource
 import shutil
 import statistics
 import subprocess
@@ -116,6 +122,23 @@ PURE_1V2_MATRIX=['single_st','single_et1','single_et2',
                  'double_compact_st','double_compact_et1','double_compact_et2']
 PURE_1_MATRIX=['single_st','single_et1','double_compact_st','double_compact_et1']
 PURE_2_MATRIX=['single_st','single_et2','double_compact_st','double_compact_et2']
+SINGLE_PROFILE_CONTROLS = ('single_st', 'single_et1', 'single_et2')
+SINGLE_PROFILE_MATRIX = list(SINGLE_PROFILE_CONTROLS)
+for control in SINGLE_PROFILE_CONTROLS:
+    sampled_mode = control + '_profile'
+    single(sampled_mode, **MODES[control][1], profile=True)
+    SINGLE_PROFILE_MATRIX.append(sampled_mode)
+# Measure the eligibility scan with direct solving disabled and classic pivots fixed.
+double('double_compact_st_no_gate', skip_et_gate=True)
+double('double_compact_st_gate1', targetdegree=1)
+DOUBLE_GATE_CONTROLS = ('double_compact_st_no_gate', 'double_compact_st_gate1', 'double_compact_st')
+DOUBLE_GATE_MATRIX = [*DOUBLE_GATE_CONTROLS, 'double_compact_et1', 'double_compact_et2']
+DOUBLE_PROFILE_CONTROLS = ('double_compact_st', 'double_compact_et1', 'double_compact_et2')
+DOUBLE_PROFILE_MATRIX = list(DOUBLE_PROFILE_CONTROLS)
+for control in DOUBLE_PROFILE_CONTROLS:
+    sampled_mode = control + '_profile'
+    double(sampled_mode, **MODES[control][1], profile=True, profile_interval=64)
+    DOUBLE_PROFILE_MATRIX.append(sampled_mode)
 # Independent guidance-inclusive study, not a pure biplex threshold ablation.
 GUIDED_1V2_MATRIX=['single_st','single_et1','single_et1_tg1',
                    'single_et2','single_et2_tg2',
@@ -181,27 +204,51 @@ YOUTUBE_MATRIX = [
 def die(msg):
     raise SystemExit('[ERROR] '+str(msg))
 
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def compiler_identity():
+    name = os.environ.get('CXX', 'g++')
+    compiler = shutil.which(name)
+    if compiler is None:
+        die('Compiler not found: ' + name)
+    return compiler, subprocess.check_output([compiler, '--version'], text=True)
+
+
 def root_cache():
     path=Path(os.environ.get('MBE2_CACHE',str(Path.home()/'.cache'/'mbe_pure_2biplex'))).expanduser()
     archive=Path(sys.argv[0]).resolve()
     if not zipfile.is_zipfile(archive):
         die('Use the ZIP directly: python3 MBE_1V2_BIPLEX_ET_PROFILER.zip ...')
-    digest=hashlib.sha256(archive.read_bytes()).hexdigest()[:16]
+    digest=sha256(archive)
     return path/digest,archive
 
 def install(cache,archive):
-    marker=cache/'engine'/'two'/'ips.hpp'
-    if marker.is_file() and (cache/'engine'/'one'/'src'/'MBET.hpp').is_file():
+    if (cache / 'engine').is_dir():
         return
-    cache.mkdir(parents=True,exist_ok=True)
-    with zipfile.ZipFile(archive) as z:
-        for info in z.infolist():
-            if not info.filename.startswith('engine/') or info.is_dir():continue
-            relative=Path(info.filename)
-            if '..' in relative.parts:die('Unsafe ZIP entry')
-            target=cache/relative
-            target.parent.mkdir(parents=True,exist_ok=True)
-            with z.open(info) as src,target.open('wb') as dst: shutil.copyfileobj(src,dst)
+    cache.mkdir(parents=True, exist_ok=True)
+    with (cache / '.install.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (cache / 'engine').is_dir():
+            return
+        with zipfile.ZipFile(archive) as z, tempfile.TemporaryDirectory(dir=cache) as temp:
+            for info in z.infolist():
+                if not info.filename.startswith('engine/') or info.is_dir():
+                    continue
+                relative = Path(info.filename)
+                if '..' in relative.parts:
+                    die('Unsafe ZIP entry')
+                target = Path(temp) / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(info) as src, target.open('wb') as dst:
+                    shutil.copyfileobj(src, dst)
+            (Path(temp) / 'engine').replace(cache / 'engine')
 
 def single_flags(d):
     flags=['-DMBE_ET_STREAM=1', '-DMBE_V32_CANDIDATE_POOL=1',
@@ -212,6 +259,7 @@ def single_flags(d):
     if d['result']=='inline': flags+=['-DMBE_V42_INLINE_RESULT=1']
     if d['cr']:flags+=['-DMBE_V42_FAST_REPORT=1']
     if d.get('tgfast'):flags+=['-DMBE_TG2_STACK_MISSES=1']
+    if d.get('profile'):flags+=['-DMBE_ET_PROFILE=1']
     return flags
 
 def double_flags(d):
@@ -220,6 +268,7 @@ def double_flags(d):
     if d['adjacency']=='hybrid':
         flags+=['-DIPS_ST_V15_HASHLESS=1','-DIPS_ST_V15_ROW_CACHE=1']
     if not d['et']: flags+=['-DIPS_DISABLE_ET=1']
+    if d.get('skip_et_gate'): flags+=['-DIPS_DISABLE_ET_GATE=1']
     if not d['tg']: flags+=['-DIPS_CLASSIC_PIVOT=1']
     if d.get('tgfast'): flags+=['-DIPS_TG2_FAST_OBSTRUCTION=1']
     if d.get('tgcache'): flags+=['-DIPS_TG2_CACHED_MISSING=1']
@@ -230,7 +279,10 @@ def double_flags(d):
     if d.get('etreuse'): flags+=['-DIPS_ET2_SCRATCH_REUSE=1']
     if d.get('matchfast'): flags+=['-DIPS_ET2_FAST_MATCHING_COMPONENTS=1']
     if d.get('targetdegree',2)!=2: flags+=['-DIPS_ET_TARGET_DEGREE='+str(d['targetdegree'])]
-    if d.get('profile'): flags+=['-DIPS_ET_PROFILE=1']
+    if d.get('profile'):
+        flags+=['-DIPS_ET_PROFILE=1']
+        if 'profile_interval' in d:
+            flags+=['-DIPS_ET_PROFILE_SAMPLE_INTERVAL='+str(d['profile_interval'])]
     if d.get('pattern'): flags+=['-DIPS_ET2_PATTERN_CACHE=1']
     return flags
 
@@ -242,28 +294,52 @@ def build(mode,cache,archive,quiet=False):
     flags=single_flags(d) if kind=='single' else double_flags(d)
     # Different ET/TG switches in single are runtime switches, so binaries
     # are keyed by actual compiler arguments, not by name or description.
-    sig=hashlib.sha256((str(src)+repr(flags)+kind+BUILD_PROFILE).encode()).hexdigest()[:14]
+    compiler, version = compiler_identity()
+    sig=hashlib.sha256(json.dumps([str(src), flags, kind, BUILD_PROFILE, compiler, version]).encode()).hexdigest()[:20]
     exe=cache/'bin'/('one_' if kind=='single' else 'two_')
     exe=exe.with_name(exe.name+sig)
     if exe.is_file():return exe
     exe.parent.mkdir(parents=True,exist_ok=True)
-    compiler=os.environ.get('CXX','g++')
-    if shutil.which(compiler) is None:die('g++ not available. Run in WSL2/Linux with GCC 12+ and Python 3.9+.')
-    cmd=[compiler,'-'+BUILD_PROFILE,'-std=c++17','-UNDEBUG','-I',str(src),*flags,str(src/'main.cpp'),'-o',str(exe)]
-    if not quiet:print('[BUILD]',mode,flush=True)
-    r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-    if r.returncode:die('Compilation failed for '+mode+'\n'+r.stderr[-5000:])
+    with exe.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if exe.is_file():
+            return exe
+        with tempfile.TemporaryDirectory(dir=exe.parent) as temp:
+            binary = Path(temp) / 'engine'
+            cmd = [compiler, '-' + BUILD_PROFILE, '-std=c++17', '-UNDEBUG', '-I', str(src),
+                   *flags, str(src / 'main.cpp'), '-o', str(binary)]
+            if not quiet:
+                print('[BUILD]', mode, flush=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode:
+                die('Compilation failed for ' + mode + '\n' + result.stderr[-5000:])
+            binary.replace(exe)
     return exe
 
-def graph_variants(graph,cache):
+def graph_variants(graph,cache,graph_sha=None):
     graph=Path(graph).resolve()
     if not graph.is_file():die('Graph not found: '+str(graph))
-    key=hashlib.sha256((str(graph)+str(graph.stat().st_size)+str(graph.stat().st_mtime_ns)).encode()).hexdigest()[:16]
-    directory=cache/'graphs'/key
-    directory.mkdir(parents=True,exist_ok=True)
+    graph_sha = graph_sha or sha256(graph)
+    directory=cache/'graphs'/graph_sha
     single=directory/'graph.edges'
     double=directory/'graph.clean'
     if single.is_file() and double.is_file():return single,double
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=directory.parent) as temp:
+        stage = Path(temp) / 'graph'
+        stage.mkdir()
+        convert_graph(graph, stage / single.name, stage / double.name)
+        if sha256(graph) != graph_sha:
+            die('Input graph changed during conversion: ' + str(graph))
+        try:
+            stage.rename(directory)
+        except OSError:
+            if not (single.is_file() and double.is_file()):
+                raise
+    return single,double
+
+
+def convert_graph(graph, single, double):
     # Auto-detect a canonical three-integer clean header (only first line).
     # The supplied two-side .clean format is expected to be 0-based.
     with graph.open(encoding='utf8') as f:
@@ -291,7 +367,42 @@ def graph_variants(graph,cache):
         with double.open('w',encoding='utf8') as o:
             o.write(f'{len(left)} {len(right)} {len(edges)}\n')
             for a,b in sorted(edges):o.write(f'{a} {b}\n')
-    return single,double
+
+PROFILE_STATS = {
+    'et_gate_ms': 'Gate_ms',
+    'et_setup_ms': 'Setup_ms',
+    'et_build_ms': 'Build_ms',
+    'et_decompose_ms': 'Decompose_ms',
+    'et_generate_ms': 'Generate_ms',
+    'et_gate_calls': 'Gate_Calls',
+    'et_terminal_calls': 'Terminal_Calls',
+    'et_candidate_sum': 'Total_Candidates',
+    'et_max_candidate': 'Max_Candidates',
+    'et_profile_interval': 'Sample_Interval',
+    'et_gate_samples': 'Gate_Samples',
+    'et_terminal_samples': 'Terminal_Samples',
+    'et_gate_passes': 'Gate_Passes',
+    'et_fallbacks': 'Fallbacks',
+    'et_fallback_ms': 'Fallback_ms',
+    'et_emit_ms': 'Emit_ms',
+}
+SINGLE_PROFILE_STATS = {
+    'single_profile_interval': 'Interval',
+    'single_gate_calls': 'GateCalls',
+    'single_gate_samples': 'GateSamples',
+    'single_terminal_samples': 'TerminalSamples',
+    'single_fallbacks': 'Fallbacks',
+    'single_output_calls': 'OutputCalls',
+    'single_output_samples': 'OutputSamples',
+    'single_gate_ns': 'GateNs',
+    'single_terminal_ns': 'TerminalNs',
+    'single_fallback_ns': 'FallbackNs',
+    'single_matching_ns': 'MatchingNs',
+    'single_generate_ns': 'GenerateNs',
+    'single_commit_ns': 'CommitNs',
+    'single_output_ns': 'OutputNs',
+}
+
 
 def parse_stats(kind,stdout):
     def pick(pattern):
@@ -313,14 +424,18 @@ def parse_stats(kind,stdout):
             calls=pick(r'^V59_Selected_ET2:\s*(\d+)')
         fp=pick(r'^Checksum_XOR:\s*(\d+)')+'|'+pick(r'^Checksum_SUM:\s*(\d+)')
         rss=pick(r'^Peak_RSS_MiB:\s*([\d.]+)')
-        return dict(time_s=sec,count=count,et_attempt=calls,et_hit=e_used,
+        stats = dict(time_s=sec,count=count,et_attempt=calls,et_hit=e_used,
                     et_degree2_hit=term,fingerprint=fp,rss_mib=rss,
                     branch_calls='',et_output_count='')
+        stats.update({name: pick(rf'^Single_ET_Profile_{label}:\s*(\d+)')
+                      for name, label in SINGLE_PROFILE_STATS.items()})
+        stats['profile_seed'] = pick(r'^Single_ET_Profile_Seed:\s*(\d+)$')
+        return stats
     ms=pick(r'Maximal_BiClique_Count:\s*(\d+), Time:\s*(\d+) ms')
     count=ms
     time_ms=pick(r'Maximal_BiClique_Count:\s*\d+, Time:\s*(\d+) ms')
     fine=pick(r'^Search_Time_s:\s*([\d.eE+-]+)')
-    return dict(time_s=fine or (str(float(time_ms)/1000) if time_ms else ''),count=count,
+    stats = dict(time_s=fine or (str(float(time_ms)/1000) if time_ms else ''),count=count,
                 et_attempt=pick(r'^ET_Eligible / TT =\s*(\d+)'),
                 et_hit=pick(r'^ET_Used / TT =\s*(\d+)'),
                 et_degree2_hit=pick(r'^2Biplex_Degree2_Hits:\s*(\d+)'),
@@ -332,16 +447,11 @@ def parse_stats(kind,stdout):
                 tg2_score_states=pick(r'^TG2_Score_States:\s*(\d+)'),
                 branch_calls=pick(r'^Branch_Calls:\s*(\d+)'),
                 et_output_count=pick(r'^ET_Output_Count:\s*(\d+)'),
-                et_gate_ms=pick(r'^ET_Profiler_Gate_ms:\s*([\d.]+)'),
-                et_setup_ms=pick(r'^ET_Profiler_Setup_ms:\s*([\d.]+)'),
-                et_build_ms=pick(r'^ET_Profiler_Build_ms:\s*([\d.]+)'),
-                et_decompose_ms=pick(r'^ET_Profiler_Decompose_ms:\s*([\d.]+)'),
-                et_generate_ms=pick(r'^ET_Profiler_Generate_ms:\s*([\d.]+)'),
-                et_gate_calls=pick(r'^ET_Profiler_Gate_Calls:\s*(\d+)'),
-                et_terminal_calls=pick(r'^ET_Profiler_Terminal_Calls:\s*(\d+)'),
-                et_candidate_sum=pick(r'^ET_Profiler_Total_Candidates:\s*(\d+)'),
-                et_max_candidate=pick(r'^ET_Profiler_Max_Candidates:\s*(\d+)'),
                 et_pattern_components=pick(r'^ET_Pattern_Components:\s*(\d+)'))
+    stats.update({name: pick(rf'^ET_Profiler_{label}:\s*([\d.]+)')
+                  for name, label in PROFILE_STATS.items()})
+    stats['profile_seed'] = pick(r'^ET_Profiler_Seed:\s*(\d+)$')
+    return stats
 
 def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
     kind,d=MODES[mode]
@@ -366,13 +476,18 @@ def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
     if emit_path:cmd+=['-o',str(emit_path)]
     return cmd
 
-def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,precomputed=None):
-    exe=build(mode,cache,archive,quiet=quiet)
+def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,
+            precomputed=None,exe=None,profile_seed=None):
+    if exe is None:
+        exe=build(mode,cache,archive,quiet=quiet)
     paths=precomputed if precomputed is not None else graph_variants(graph,cache)
     cmd=command(mode,exe,*paths,min_left,min_right,emit_path)
+    env = None
+    if profile_seed is not None:
+        env = {**os.environ, 'MBE_ET_PROFILE_SEED': str(profile_seed)}
     t=time.perf_counter()
     try:
-        proc=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+        proc=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,env=env)
     except subprocess.TimeoutExpired:die(mode+' exceeded timeout '+str(timeout)+'s')
     elapsed=time.perf_counter()-t
     # Print small adjacency-allocation diagnostics even on successful runs.
@@ -381,9 +496,7 @@ def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,q
             print(diag_line,flush=True)
     if proc.returncode:die(mode+' returned '+str(proc.returncode)+'\n'+proc.stdout[-1500:]+'\n'+proc.stderr[-1500:])
     result=parse_stats(MODES[mode][0],proc.stdout)
-    for field in ('et_gate_ms','et_setup_ms','et_build_ms','et_decompose_ms',
-                  'et_generate_ms','et_gate_calls','et_terminal_calls',
-                  'et_candidate_sum','et_max_candidate','et_pattern_components'):
+    for field in (*PROFILE_STATS, *SINGLE_PROFILE_STATS, 'et_pattern_components'):
         result.setdefault(field,'')
     result.setdefault('tg2_score_changes','')
     result.setdefault('tg2_cache_used','')
@@ -478,6 +591,9 @@ def all_matrix(args,cache,archive):
     elif args.modes=='pure':modes=PURE_1V2_MATRIX
     elif args.modes=='pure1':modes=PURE_1_MATRIX
     elif args.modes=='pure2':modes=PURE_2_MATRIX
+    elif args.modes=='single-profile':modes=SINGLE_PROFILE_MATRIX
+    elif args.modes=='double-gate':modes=DOUBLE_GATE_MATRIX
+    elif args.modes=='double-profile':modes=DOUBLE_PROFILE_MATRIX
     elif args.modes=='guided':modes=GUIDED_1V2_MATRIX
     elif args.modes=='biplex':modes=BIPLEX_COMPARE_MATRIX
     elif args.modes=='pair':modes=['double_compact_et1_tg1','double_compact_et2_tg2']
@@ -485,40 +601,173 @@ def all_matrix(args,cache,archive):
     else:modes=args.modes.split(',')
     for m in modes:
         if m not in MODES:die('Unknown selected mode '+m)
+    if len(set(modes)) != len(modes):
+        die('Each selected mode must be unique')
+    out = Path(args.out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.with_suffix(out.suffix + '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        run_matrix(args, cache, archive, modes, out)
+
+
+MATRIX_FIELDS = (
+    'graph', 'block', 'mode', 'kind', 'time_s', 'wall_s', 'count', 'et', 'tg',
+    'et_attempt', 'et_hit', 'et_degree2_hit', 'fingerprint', 'rss_mib',
+    'tg2_score_states', 'tg2_score_changes', 'tg2_cache_used', 'tg2_cache_fallback',
+    'branch_calls', 'et_output_count', *PROFILE_STATS, *SINGLE_PROFILE_STATS, 'profile_seed', 'et_pattern_components',
+)
+
+
+def block_signature(rows, graph, order, block):
+    if len(rows) != len(order):
+        die(f'Block {block}: incomplete mode coverage')
+    counts = set()
+    groups = {}
+    for row, mode in zip(rows, order):
+        kind, mode_flags = MODES[mode]
+        if (set(row) != set(MATRIX_FIELDS) or row['block'] != block or row['graph'] != graph
+                or row['mode'] != mode or row['kind'] != kind):
+            die(f'Block {block}: invalid row for {mode}')
+        counts.add(int(row['count']))
+        if not re.fullmatch(r'[0-9]+\|[0-9]+', row['fingerprint']):
+            die(f'Block {block}: missing or invalid fingerprint for {mode}')
+        search_s, wall_s = (float(row[field]) for field in ('time_s', 'wall_s'))
+        if not math.isfinite(search_s) or not math.isfinite(wall_s) or search_s < 0 or wall_s <= 0:
+            die(f'Block {block}: invalid duration for {mode}')
+        group = (kind, mode_flags.get('cr', False))
+        if groups.setdefault(group, row['fingerprint']) != row['fingerprint']:
+            die(f'Block {block}: fingerprints differ within {group}')
+    if len(counts) != 1 or min(counts) < 0:
+        die(f'Block {block}: inconsistent biclique counts')
+    return next(iter(counts)), groups
+
+
+def checkpoint_digest(blocks):
+    payload = json.dumps(blocks, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def sampling_seed(seed, block):
+    key = f'mbe-et-profile-v1:{seed}:{block}'.encode('ascii')
+    return str(int.from_bytes(hashlib.sha256(key).digest()[:8], 'big'))
+
+
+def load_matrix_checkpoint(checkpoint, params):
+    try:
+        saved = json.loads(checkpoint.read_text(encoding='utf-8'))
+        blocks = saved['blocks']
+        if (saved['parameters'] != params or not isinstance(blocks, list)
+                or len(blocks) > params['repeats'] or saved['blocks_sha256'] != checkpoint_digest(blocks)):
+            raise ValueError('run identity or checkpoint hash differs')
+    except (ValueError, KeyError, TypeError) as error:
+        die(f'{checkpoint}: {error}; use the matching configuration or a new output path')
+    return blocks
+
+
+def save_matrix_checkpoint(checkpoint, params, blocks):
+    snapshot = dict(parameters=params, blocks=blocks, blocks_sha256=checkpoint_digest(blocks))
+    with tempfile.TemporaryDirectory(dir=checkpoint.parent) as temp:
+        pending = Path(temp) / checkpoint.name
+        with pending.open('w', encoding='utf-8') as stream:
+            json.dump(snapshot, stream, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        pending.replace(checkpoint)
+
+
+def run_matrix(args, cache, archive, modes, out):
+    graph = Path(args.graph).resolve()
+    graph_name = Path(args.graph).name
+    graph_sha = sha256(graph)
+    executables = {mode: build(mode, cache, archive) for mode in modes}
+    params = dict(graph=graph_name, input_sha256=graph_sha, runner_sha256=sha256(archive),
+                  executables={mode: sha256(exe) for mode, exe in executables.items()},
+                  modes=modes, matrix=args.modes, repeats=args.repeats, seed=args.seed, timeout=args.timeout,
+                  min_left=args.min_left, min_right=args.min_right, build_profile=BUILD_PROFILE,
+                  compiler=list(compiler_identity()), host=list(platform.uname()),
+                  affinity=sorted(os.sched_getaffinity(0)),
+                  stack=list(resource.getrlimit(resource.RLIMIT_STACK)))
+    sampled_matrix = args.modes in ('single-profile', 'double-profile')
+    if sampled_matrix:
+        params['profile_seeds'] = [sampling_seed(args.seed, block) for block in range(1, args.repeats+1)]
+        params['order_design'] = 'paired-reversal-v1'
+    manifest = out.with_suffix(out.suffix + '.manifest.json')
+    checkpoint = out.with_suffix(out.suffix + '.checkpoint.json')
+    blocks = []
+    if args.resume and checkpoint.exists():
+        blocks = load_matrix_checkpoint(checkpoint, params)
+    elif args.resume and out.exists():
+        expected = dict(parameters=params, csv_sha256=sha256(out))
+        if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')) != expected:
+            die(f'{out}: run configuration changed, manifest missing, or CSV altered; use a new output path')
+        print(f'[SKIP] {out}: complete matrix matches the current run configuration', flush=True)
+        return
+    elif not args.resume:
+        checkpoint.unlink(missing_ok=True)
+
     print(f'[MATRIX] {len(modes)} modes, {args.repeats} paired blocks; times exclude build/preprocess',flush=True)
-    for m in modes:build(m,cache,archive,quiet=False)
-    paths=graph_variants(args.graph,cache)
-    rows=[]
-    rng=random.Random(args.seed)
-    for block in range(args.repeats):
-        order=modes[:];rng.shuffle(order)
-        block_counts=[]
-        per_framework={}
-        for mode in order:
-            row,_=execute(mode,cache,archive,args.graph,args.min_left,args.min_right,args.timeout,
-                          quiet=True,precomputed=paths)
-            row['block']=block+1;rows.append(row)
-            block_counts.append(row['count'])
-            kind=row['kind'];fp=row['fingerprint']
-            # Within a frame, checksums are controlled by CR flags; full per
-            # result count must always agree across *all* 2-biplex variants.
-            per_framework.setdefault((kind,MODES[mode][1].get('cr',False)),[]).append((mode,fp))
-            print('[RUN]',block+1,mode,'search_s='+str(row['time_s']),
-                  'count='+row['count'],'ET_hit='+row['et_hit'],flush=True)
-        if len(set(block_counts))!=1:
-            die('Output counts differ across the matrix in block '+str(block+1)+': '+str(block_counts))
-        for group in per_framework.values():
-            # Caution: any change in traversal ordering must still use
-            # commutative fingerprints, which these two engines provide.
-            vals={v for _,v in group}
-            if len(vals)>1:
-                die('Fingerprint mismatch in block '+str(block+1)+': '+str(group))
-    out=Path(args.out).resolve()
-    out.parent.mkdir(parents=True,exist_ok=True)
-    with out.open('w',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=['graph','block','mode','kind','time_s','wall_s',
-                      'count','et','tg','et_attempt','et_hit','et_degree2_hit','fingerprint','rss_mib','tg2_score_states','tg2_score_changes','tg2_cache_used','tg2_cache_fallback','branch_calls','et_output_count', 'et_gate_ms','et_setup_ms','et_build_ms', 'et_decompose_ms','et_generate_ms','et_gate_calls','et_terminal_calls','et_candidate_sum','et_max_candidate','et_pattern_components'])
-        writer.writeheader();writer.writerows(rows)
+    orders = []
+    rng = random.Random(args.seed)
+    for index in range(args.repeats):
+        if sampled_matrix and index % 2:
+            orders.append(orders[-1][::-1])
+            continue
+        order = list(modes)
+        rng.shuffle(order)
+        orders.append(order)
+
+    reference = None
+    reused = len(blocks)
+    paths = None
+    for block, order in enumerate(orders, 1):
+        profile_seed = params['profile_seeds'][block - 1] if sampled_matrix else None
+        if block <= reused:
+            rows = blocks[block - 1]
+        else:
+            if paths is None:
+                paths = graph_variants(graph, cache, graph_sha)
+            rows = []
+            for mode in order:
+                mode_seed = profile_seed if MODES[mode][1].get('profile') else None
+                row, _ = execute(mode, cache, archive, args.graph, args.min_left, args.min_right,
+                                 args.timeout, quiet=True, precomputed=paths, exe=executables[mode],
+                                 profile_seed=mode_seed)
+                row['block'] = block
+                rows.append(row)
+                print(f'[RUN] {block} {mode} search_s={row["time_s"]} count={row["count"]} '
+                      f'ET_hit={row["et_hit"]}', flush=True)
+        signature = block_signature(rows, graph_name, order, block)
+        if sampled_matrix:
+            for row in rows:
+                expected_seed = profile_seed if MODES[row['mode']][1].get('profile') else ''
+                if row['profile_seed'] != expected_seed:
+                    die(f'Block {block}: unexpected profiling seed in {row["mode"]}')
+        if reference is None:
+            reference = signature
+        elif signature != reference:
+            die(f'Block {block}: output count or fingerprint differs from the first block')
+        if args.modes == 'double-gate':
+            controls = {row['mode']: row for row in rows if row['mode'] in DOUBLE_GATE_CONTROLS}
+            verify_gate_controls(controls, block)
+        if block <= reused:
+            print(f'[SKIP_BLOCK] {block}: complete paired block verified', flush=True)
+        else:
+            blocks.append(rows)
+            save_matrix_checkpoint(checkpoint, params, blocks)
+
+    rows = [row for block in blocks for row in block]
+    with tempfile.TemporaryDirectory(dir=out.parent) as temp:
+        csv_path = Path(temp) / out.name
+        manifest_path = Path(temp) / manifest.name
+        with csv_path.open('w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=MATRIX_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        manifest_path.write_text(json.dumps(dict(parameters=params, csv_sha256=sha256(csv_path)),
+                                            indent=2, sort_keys=True) + '\n', encoding='utf-8')
+        csv_path.replace(out)
+        manifest_path.replace(manifest)
+    checkpoint.unlink(missing_ok=True)
     print('[CSV]',out)
     print('Mode\tmedian_search_s\tmedian_wall_s\tcount\tmedian_peak_RSS_MiB')
     for mode in modes:
@@ -526,6 +775,16 @@ def all_matrix(args,cache,archive):
         s=[float(v['time_s']) for v in rr if v['time_s']]
         print(mode,statistics.median(s) if s else 'NA',round(statistics.median(v['wall_s'] for v in rr),6),rr[0]['count'],(statistics.median(float(v['rss_mib']) for v in rr if v['rss_mib']) if any(v['rss_mib'] for v in rr) else 'NA'),sep='\t')
     print('[CAUTION] Search timer boundaries differ between Single and Double; DO NOT rank across frameworks by search_s.')
+
+def verify_gate_controls(rows, block):
+    off, degree1, degree2 = (rows[mode] for mode in DOUBLE_GATE_CONTROLS)
+    branch_counts = {int(row["branch_calls"]) for row in rows.values()}
+    if len(branch_counts) != 1 or any(int(row["et_hit"]) != 0 for row in rows.values()):
+        die(f"Block {block}: ST gate controls changed branches or ran a terminal")
+    off_passes, degree1_passes, degree2_passes = (int(row["et_attempt"]) for row in (off, degree1, degree2))
+    if off_passes != 0 or degree1_passes > degree2_passes:
+        die(f"Block {block}: inconsistent gate-pass counters")
+
 
 def main():
     argv=sys.argv[1:]
@@ -573,8 +832,9 @@ def main():
         parser.add_argument('--timeout',type=int,default=3600)
         parser.add_argument('--seed',type=int,default=71213)
         parser.add_argument('--out',default='mbe_2biplex_results.csv')
+        parser.add_argument('--resume', action='store_true', help='Reuse validated complete blocks with matching run settings')
         parser.add_argument('--modes',default=('youtube' if command_name=='youtube' else 'main'),
-                            help='pure|pure1|pure2|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
+                            help='pure|pure1|pure2|single-profile|double-gate|double-profile|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
         a=parser.parse_args(argv[1:])
         if a.repeats<1:die('--repeats must be >= 1')
         if command_name=='youtube':

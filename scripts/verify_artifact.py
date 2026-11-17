@@ -20,23 +20,31 @@ def sha256(path):
     return h.hexdigest()
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--full-scan', action='store_true', help='also scan every edge for counts and valid vertex IDs')
-    args = parser.parse_args()
-    manifest = json.loads((ROOT / 'data/ARCHIVE_PARTS.json').read_text())
-    problems = []
-    for record in manifest['parts']:
-        part = ROOT / 'data' / record['file']
-        if not part.is_file() or part.stat().st_size != record['bytes'] or sha256(part) != record['sha256']:
-            problems.append('missing/corrupt archive part: ' + record['file'])
     rows = list(csv.DictReader((ROOT / 'data/COLLECTED_INPUT_SHA256.csv').open(newline='')))
     stats = {r['graph']: r for r in csv.DictReader((ROOT / 'data/GRAPH_STATISTICS.csv').open(newline=''))}
-    if len(rows) != 13 or len(stats) != 13:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data-dir', type=Path, default=ROOT / 'data_clean',
+                        help='directory containing the thirteen experimental graph files')
+    parser.add_argument('--full-scan', action='store_true', help='also scan every edge for counts and valid vertex IDs')
+    parser.add_argument('--inputs-only', action='store_true', help='verify locally reconstructed graphs without archive parts')
+    parser.add_argument('--graphs', nargs='+', choices=stats, help='verify a named subset of extracted graphs')
+    args = parser.parse_args()
+    problems = []
+    if not args.inputs_only:
+        manifest = json.loads((ROOT / 'data/ARCHIVE_PARTS.json').read_text())
+        for record in manifest['parts']:
+            part = ROOT / 'data' / record['file']
+            if not part.is_file() or part.stat().st_size != record['bytes'] or sha256(part) != record['sha256']:
+                problems.append('missing/corrupt archive part: ' + record['file'])
+    if len(rows) != 13 or len(stats) != 13 or {row['graph'] for row in rows} != set(stats):
         problems.append('expected exactly 13 graphs in both manifests')
+    selected = set(args.graphs or stats)
     verified = 0
     for record in rows:
         name = record['graph']
-        path = ROOT / 'data_clean' / record['file_name']
+        if name not in selected:
+            continue
+        path = args.data_dir / record['file_name']
         if not path.is_file():
             problems.append('missing extracted graph: ' + name)
             continue
@@ -54,6 +62,7 @@ def main():
                     raise ValueError('header mismatch with graph statistics')
                 if args.full_scan:
                     count = 0
+                    candidate_hash = hashlib.sha256()
                     for lineno, line in enumerate(f, start=2):
                         parts = line.split()
                         if len(parts) != 2:
@@ -61,14 +70,19 @@ def main():
                         l, r = map(int, parts)
                         if not (0 <= l < nl and 0 <= r < nr):
                             raise ValueError('out-of-range edge at line ' + str(lineno))
+                        candidate_hash.update(f'{l}\t{r}\n'.encode('ascii'))
                         count += 1
                     if count != ne:
                         raise ValueError(f'expected {ne} edges, observed {count}')
+                    if candidate_hash.hexdigest() != record['candidate_edge_list_sha256']:
+                        raise ValueError('normalized Candidate Tree input digest mismatch')
         except (OSError, ValueError, KeyError) as e:
             problems.append(f'invalid graph {name}: {e}')
             continue
         verified += 1
-    print(f'Validated input graphs: {verified}/13; archive parts: {len(manifest["parts"])}')
+    print(f'Validated input graphs: {verified}/{len(selected)}')
+    if not args.inputs_only:
+        print(f'Archive parts checked: {len(manifest["parts"])}')
     print('Results-free release: no precomputed experiment CSV files are required.')
     if problems:
         for p in problems:

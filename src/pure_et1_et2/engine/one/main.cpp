@@ -447,6 +447,24 @@ int main(int argc, char **argv) {
     std::cout << "V59_ET2_Hits: " << st.v59_et2_hits << "\n";
     std::cout << "V59_Solver_Failed: " << st.v59_solver_failed << "\n";
     std::cout << "V59_Legacy_ET2_Skipped: " << st.v59_legacy_et2_skipped << "\n";
+#ifdef MBE_ET_PROFILE
+    const auto &profile = st.et_profile;
+    std::cout << "Single_ET_Profile_Interval: " << MBETTerminalProfile::sample_interval << "\n";
+    std::cout << "Single_ET_Profile_Seed: " << profile.seed << "\n";
+    std::cout << "Single_ET_Profile_GateCalls: " << st.v59_dispatch_calls << "\n";
+    std::cout << "Single_ET_Profile_GateSamples: " << profile.gate_samples << "\n";
+    std::cout << "Single_ET_Profile_TerminalSamples: " << profile.terminal_samples << "\n";
+    std::cout << "Single_ET_Profile_Fallbacks: " << st.v59_solver_failed << "\n";
+    std::cout << "Single_ET_Profile_OutputCalls: " << profile.output_calls << "\n";
+    std::cout << "Single_ET_Profile_OutputSamples: " << profile.output_samples << "\n";
+    std::cout << "Single_ET_Profile_GateNs: " << profile.gate_ns << "\n";
+    std::cout << "Single_ET_Profile_TerminalNs: " << profile.terminal_ns << "\n";
+    std::cout << "Single_ET_Profile_FallbackNs: " << profile.fallback_ns << "\n";
+    std::cout << "Single_ET_Profile_MatchingNs: " << profile.matching_ns << "\n";
+    std::cout << "Single_ET_Profile_GenerateNs: " << profile.generate_ns << "\n";
+    std::cout << "Single_ET_Profile_CommitNs: " << profile.commit_ns << "\n";
+    std::cout << "Single_ET_Profile_OutputNs: " << profile.output_ns << "\n";
+#endif
     std::cout << "V58_Gate_Work_Rejected: " << st.v58_gate_work_reject << "\n";
     std::cout << "V58_Gate_Spread_Rejected: " << st.v58_gate_spread_reject << "\n";
 #ifdef MBE_V58_COST_PROFILE
