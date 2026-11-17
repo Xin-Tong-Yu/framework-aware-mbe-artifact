@@ -1,0 +1,51 @@
+name: Artifact smoke checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux inputs, resume, and exact enumeration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify canonical inputs and release files
+        run: |
+          bash scripts/quickcheck.sh
+          python3 scripts/verify_artifact.py --full-scan
+
+      - name: Exercise cache and resume regressions
+        run: |
+          test -x /usr/bin/time
+          python3 -B -m unittest discover -s tests -v
+
+      - name: Check the packaged runners
+        run: |
+          python3 runners/MBE_FAIR_MBET_2024.zip selftest --cases 20
+          python3 runners/MBE_PURE_ET1_ET2.zip selftest --cases 20 \
+            --modes single_st,single_et1,single_et2,double_compact_st,double_compact_et1,double_compact_et2
+
+      - name: Verify packaged MBET resume through the CLI
+        shell: bash
+        run: |
+          command=(python3 runners/MBE_FAIR_MBET_2024.zip bench data_clean/forum.txt
+            --modes mbet,st_cr --repeats 2 --out outputs/ci/fair.csv --resume)
+          "${command[@]}"
+          "${command[@]}" | tee outputs/ci/fair-resume.log
+          grep -Fx '[SKIP_BLOCK] 1' outputs/ci/fair-resume.log
+          grep -Fx '[SKIP_BLOCK] 2' outputs/ci/fair-resume.log
+
+      - name: Check the staged source and targeted native oracles
+        run: |
+          bash scripts/run_paper_ablations.sh check-source
+          bash scripts/run_paper_ablations.sh oracle 20
+          bash scripts/run_paper_ablations.sh prefix-oracle

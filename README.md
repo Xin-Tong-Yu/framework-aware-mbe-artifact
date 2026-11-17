@@ -64,6 +64,8 @@ bash scripts/run_paper_ablations.sh prefix-oracle
 
 The launchers prepare their native executables before the oracle's per-mode timeout. The prefix oracle checks the Single matching and nonmatching deferral cases against an exhaustive closure oracle and verifies complete output after a forced solver rejection.
 
+The [Linux smoke workflow](.github/workflows/artifact-smoke.yml) checks a fresh checkout, runs the cache and resume regression tests, and exercises the packaged and staged native oracles. For the same regression tests locally on Linux or WSL, run `python3 -B -m unittest discover -s tests -v`.
+
 ## 3. Run the four-mode MBET comparison
 
 ```bash
