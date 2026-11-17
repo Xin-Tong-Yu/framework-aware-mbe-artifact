@@ -4,7 +4,7 @@
 import argparse
 import json
 from pathlib import Path
-from statistics import geometric_mean
+from statistics import geometric_mean, median
 import sys
 from zipfile import BadZipFile
 
@@ -51,6 +51,37 @@ def compare_guidance_work(original, replay):
     return matches
 
 
+def guidance_timing_sensitivity(graphs):
+    result = {}
+    for framework in GUIDANCE_COLUMNS:
+        by_graph = {graph["graph"]: graph["guidance_timing_by_block"][framework] for graph in graphs}
+        blocks = [block for observations in by_graph.values() for block in observations]
+        drift = [block["st_end_over_start"] for block in blocks]
+        order_counts = {}
+        for policy_before_et, label in ((True, "policy_before_et"), (False, "et_before_policy")):
+            ratios = [block["direct_policy_ratio"] for block in blocks if block["policy_before_et"] == policy_before_et]
+            order_counts[label] = {"faster_blocks": sum(value > 1 for value in ratios),
+                                   "slower_blocks": sum(value < 1 for value in ratios),
+                                   "equal_blocks": ratios.count(1)}
+        direct = {graph: median(block["direct_policy_ratio"] for block in rows) for graph, rows in by_graph.items()}
+        normalized = {
+            graph: median(block["st_normalized_policy_ratio"] for block in rows) for graph, rows in by_graph.items()
+        }
+        result[framework] = {
+            "median_st_end_over_start": median(drift),
+            "median_absolute_st_change_percent": 100 * median(abs(value - 1) for value in drift),
+            "st_end_over_start_range": [min(drift), max(drift)],
+            "direct_policy_block_directions_by_order": order_counts,
+            "direct_geometric_mean_ratio": geometric_mean(direct.values()),
+            "st_normalized_geometric_mean_ratio": geometric_mean(normalized.values()),
+            "graphs_with_changed_median_direction": [
+                graph for graph, ratio in direct.items()
+                if (ratio > 1, ratio < 1) != (normalized[graph] > 1, normalized[graph] < 1)
+            ],
+        }
+    return result
+
+
 def compare(archive, replay, table):
     historical = archive[f"table_{table}"]
     columns = tuple(historical["columns"])
@@ -92,6 +123,10 @@ def compare(archive, replay, table):
                     )
                 except ValueError as error:
                     raise ValueError(f"{observed['graph']}: {error}") from error
+                result["guidance_timing_by_block"] = {
+                    "archived": original["guidance_timing_by_block"],
+                    "replayed": observed["guidance_timing_by_block"],
+                }
         graphs.append(result)
 
     def paired_gm(key, name):
@@ -128,6 +163,10 @@ def compare(archive, replay, table):
                 campaign: {framework: {key: stats[key] for key in ("faster_blocks", "slower_blocks", "equal_blocks")}
                            for framework, stats in report["frameworks"].items()}
                 for campaign, report in sensitivity.items()
+            }
+            output["guidance_timing_sensitivity"] = {
+                "archived": guidance_timing_sensitivity(archived_subset),
+                "replayed": guidance_timing_sensitivity(replay["graphs"]),
             }
     return output
 

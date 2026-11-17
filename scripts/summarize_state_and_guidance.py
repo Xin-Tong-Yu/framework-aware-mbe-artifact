@@ -258,6 +258,27 @@ def recorded_guidance_work(blocks):
     return by_mode
 
 
+def guidance_timing_by_block(blocks, paired_ratios, direct_guidance):
+    result = {}
+    for index, (framework, (et, policy)) in enumerate(DIRECT_GUIDANCE.items()):
+        observations = []
+        direct_ratios = direct_guidance[framework]["block_ratios"]
+        for block, ratios, direct_ratio in zip(blocks, paired_ratios, direct_ratios):
+            jobs = block["jobs"]
+            first_st, last_st = jobs[index], jobs[-index - 1]
+            modes = [job["mode"] for job in jobs]
+            et_speedup, policy_speedup = ratios[2 * index:2 * index + 2]
+            observations.append({
+                "seed": block["seed"],
+                "policy_before_et": modes.index(policy) < modes.index(et),
+                "st_end_over_start": positive(last_st["ms"]) / positive(first_st["ms"]),
+                "direct_policy_ratio": direct_ratio,
+                "st_normalized_policy_ratio": policy_speedup / et_speedup,
+            })
+        result[framework] = observations
+    return result
+
+
 def verified_inputs(document, table, runs):
     if table == "iii":
         expected = {"st_only", *CANDIDATE}
@@ -312,6 +333,9 @@ def summarize(suite, table, stats, runs, *, include_signatures=False):
                 paired, extra, fingerprints = other_blocks(checkpoints[graph], table, runs, count)
                 if table == "vi" and include_signatures:
                     extra["recorded_work_by_mode"] = recorded_guidance_work(checkpoints[graph])
+                    extra["guidance_timing_by_block"] = guidance_timing_by_block(
+                        checkpoints[graph], paired, extra["direct_guidance"]
+                    )
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"{graph}: {error}") from error
         if include_signatures:

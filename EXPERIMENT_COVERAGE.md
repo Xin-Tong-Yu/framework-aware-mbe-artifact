@@ -108,7 +108,12 @@ observations regardless of run order. If an older checkpoint lacks a counter,
 the report lists it as unavailable for that mode. The fully matched run count
 requires all counters to be present. The report also gives the number of
 faster, slower, and tied ET+policy blocks against ET on the same graph subset
-in both batches.
+in both batches. These counts are shown for each ET and ET+policy execution
+order. For timing sensitivity, the report records the last-to-first ST time
+ratio and divides each ET+policy/ST factor by the ET/ST factor from the
+same block. Both factors use the position-specific interpolated ST time.
+This sensitivity check assumes ST drift scales the two measurements within
+the block. The main policy contrast still uses the direct pair of times.
 
 ## Regenerating Tables III–VI from native checkpoints
 
