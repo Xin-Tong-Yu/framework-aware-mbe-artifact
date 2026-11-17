@@ -1,4 +1,4 @@
-"""Check modes and counters when comparing native Table VI runs."""
+"""Check native replay counters and the Table VI timing analysis."""
 
 from pathlib import Path
 import sys
@@ -7,8 +7,10 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 try:
-    from compare_native_replay import compare_guidance_work, guidance_timing_sensitivity
-    from summarize_state_and_guidance import DIRECT_GUIDANCE, GUIDED, anchored_ratios, guidance_timing_by_block
+    from compare_native_replay import compare_work, guidance_timing_sensitivity
+    from summarize_state_and_guidance import (
+        DIRECT_GUIDANCE, GUIDED, WORK_COUNTERS, anchored_ratios, guidance_timing_by_block, recorded_work,
+    )
 finally:
     sys.path.pop(0)
 
@@ -17,22 +19,30 @@ class NativeGuidanceReplayTests(unittest.TestCase):
     def test_counter_observations_can_be_reordered(self):
         original = {"two_et": [{"et_used": 7, "pivot_c": 11}, {"et_used": 8, "pivot_c": 12}]}
         replay = {"two_et": list(reversed(original["two_et"]))}
-        self.assertEqual(compare_guidance_work(original, replay), {
+        self.assertEqual(compare_work(original, replay), {
             "two_et": {"runs": 2, "matched_counters": ["et_used", "pivot_c"], "unavailable_counters": []}
         })
 
     def test_changed_counter_pairing_is_rejected(self):
         original = {"two_et": [{"et_used": 7, "pivot_c": 11}, {"et_used": 8, "pivot_c": 12}]}
         replay = {"two_et": [{"et_used": 7, "pivot_c": 12}, {"et_used": 8, "pivot_c": 11}]}
-        with self.assertRaisesRegex(ValueError, "two_et: archived and replayed guidance counters differ"):
-            compare_guidance_work(original, replay)
+        with self.assertRaisesRegex(ValueError, "two_et: archived and replayed work counters differ"):
+            compare_work(original, replay)
 
     def test_unavailable_counter_is_reported(self):
         original = {"one_et": [{"et_hits": None, "tg_prefix2_hits": 0}]}
         replay = {"one_et": [{"et_hits": 47, "tg_prefix2_hits": 0}]}
-        self.assertEqual(compare_guidance_work(original, replay), {
+        self.assertEqual(compare_work(original, replay), {
             "one_et": {"runs": 1, "matched_counters": ["tg_prefix2_hits"], "unavailable_counters": ["et_hits"]}
         })
+
+    def test_required_work_counters_cannot_disappear(self):
+        candidate = {"bitmask_hits": 0, "bitmask_outputs": 0}
+        with self.assertRaisesRegex(ValueError, "v63_core_d: invalid prefork_skips counter"):
+            recorded_work([("v63_core_d", candidate)], WORK_COUNTERS["iii"])
+        double = {"branches": 1, "leaves": 1, "et_used": 0}
+        with self.assertRaisesRegex(ValueError, "vector_st: invalid et_output counter"):
+            recorded_work([("vector_st", double)], WORK_COUNTERS["v"])
 
     def test_normalization_uses_each_variants_st_position_and_keeps_order(self):
         mode_times = (("one_st", 100), ("two_st", 50), ("one_et", 110), ("two_et_tg_compact", 45),

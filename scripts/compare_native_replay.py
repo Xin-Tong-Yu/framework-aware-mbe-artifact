@@ -10,7 +10,7 @@ from zipfile import BadZipFile
 
 from rebuild_archived_aggregate_tables import ARCHIVE_COLUMNS, GUIDANCE_COLUMNS, load_source, rebuild
 from summarize_pure_csv import ROOT, records
-from summarize_state_and_guidance import CHECKPOINTS, guidance_sensitivity, summarize
+from summarize_state_and_guidance import CHECKPOINTS, WORK_COUNTERS, guidance_sensitivity, summarize
 
 
 def ratio_change(archived, replayed):
@@ -30,14 +30,14 @@ def load_archive(path, table, stats):
     return rebuild(load_source(path))
 
 
-def compare_guidance_work(original, replay):
+def compare_work(original, replay):
     if original.keys() != replay.keys():
-        raise ValueError("guidance work modes differ")
+        raise ValueError("work counter modes differ")
     matches = {}
     for mode, archived_runs in original.items():
         replayed_runs = replay[mode]
         if len(archived_runs) != len(replayed_runs):
-            raise ValueError(f"{mode}: guidance run counts differ")
+            raise ValueError(f"{mode}: work observation counts differ")
         fields = tuple(archived_runs[0])
         missing = [field for field in fields
                    if any(run[field] is None for batch in (archived_runs, replayed_runs) for run in batch)]
@@ -46,7 +46,7 @@ def compare_guidance_work(original, replay):
         archived_work = sorted(tuple(run[field] for field in comparable) for run in archived_runs)
         replayed_work = sorted(tuple(run[field] for field in comparable) for run in replayed_runs)
         if archived_work != replayed_work:
-            raise ValueError(f"{mode}: archived and replayed guidance counters differ: {', '.join(comparable)}")
+            raise ValueError(f"{mode}: archived and replayed work counters differ: {', '.join(comparable)}")
         matches[mode] = {"runs": len(archived_runs), "matched_counters": comparable, "unavailable_counters": missing}
     return matches
 
@@ -110,6 +110,13 @@ def compare(archive, replay, table):
                 if signature != fresh_signatures[group]:
                     raise ValueError(f"{observed['graph']}: original and replayed {group} fingerprints differ")
             result["matched_output_signatures"] = fresh_signatures
+            if table in WORK_COUNTERS:
+                try:
+                    result["matched_work_by_mode"] = compare_work(
+                        original["recorded_work_by_mode"], observed["recorded_work_by_mode"]
+                    )
+                except ValueError as error:
+                    raise ValueError(f"{observed['graph']}: {error}") from error
         if table == "vi":
             result["direct_guidance"] = {
                 framework: ratio_change(original["direct_guidance"][framework]["median_ratio"],
@@ -117,12 +124,6 @@ def compare(archive, replay, table):
                 for framework in GUIDANCE_COLUMNS
             }
             if has_original_runs:
-                try:
-                    result["matched_work_by_mode"] = compare_guidance_work(
-                        original["recorded_work_by_mode"], observed["recorded_work_by_mode"]
-                    )
-                except ValueError as error:
-                    raise ValueError(f"{observed['graph']}: {error}") from error
                 result["guidance_timing_by_block"] = {
                     "archived": original["guidance_timing_by_block"],
                     "replayed": observed["guidance_timing_by_block"],
@@ -145,17 +146,18 @@ def compare(archive, replay, table):
         output["binary_sha256_matches"] = {mode: identity == historical["binaries"][mode]
                                           for mode, identity in replay["binaries"].items()}
         output["matched_output_signature_count"] = sum(len(graph["matched_output_signatures"]) for graph in graphs)
-    if table == "vi":
-        output["direct_guidance_geometric_means_over_compared_graphs"] = {
-            framework: paired_gm("direct_guidance", framework) for framework in GUIDANCE_COLUMNS
-        }
-        if has_original_runs:
+        if table in WORK_COUNTERS:
             output["matched_work_run_count"] = sum(
                 match["runs"]
                 for graph in graphs
                 for match in graph["matched_work_by_mode"].values()
                 if not match["unavailable_counters"]
             )
+    if table == "vi":
+        output["direct_guidance_geometric_means_over_compared_graphs"] = {
+            framework: paired_gm("direct_guidance", framework) for framework in GUIDANCE_COLUMNS
+        }
+        if has_original_runs:
             archived_subset = [by_graph[graph["graph"]] for graph in graphs]
             sensitivity = {"archived": guidance_sensitivity(archived_subset),
                            "replayed": replay["direct_guidance_sensitivity"]}

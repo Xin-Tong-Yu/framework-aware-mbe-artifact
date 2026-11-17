@@ -15,6 +15,7 @@ from summarize_pure_csv import ROOT, geometric_means_without_each_graph, records
 
 
 CANDIDATE = ("v63_inline_st", "v63_core_st", "v63_core_d")
+CANDIDATE_WORK_MODES = ("st_begin", *CANDIDATE, "st_end")
 CANDIDATE_ADDITIONS = {
     "cursor_after_inline": CANDIDATE[:2],
     "prefork_after_cursor": CANDIDATE[1:],
@@ -27,6 +28,11 @@ DIRECT_GUIDANCE = {"single": GUIDED[:2], "double": GUIDED[2:]}
 GUIDANCE_COUNTERS = {
     "one": ("et_hits", "tg_prefix2_hits", "tg_ge3_hits", "tg_deferred_paths"),
     "two": ("et_used", "et_output", "pivot_c", "pivot_x"),
+}
+WORK_COUNTERS = {
+    "iii": dict.fromkeys(CANDIDATE_WORK_MODES, ("bitmask_hits", "bitmask_outputs", "prefork_skips")),
+    "v": dict.fromkeys(DOUBLE, ("branches", "leaves", "et_used", "et_output")),
+    "vi": {mode: GUIDANCE_COUNTERS[mode.split("_", 1)[0]] for mode in ("one_st", "two_st", *GUIDED)},
 }
 CHECKPOINTS = {
     "iii": "diagnostics/V63_CHECKPOINT.json",
@@ -245,16 +251,16 @@ def guidance_sensitivity(graphs):
             "filtered_graphs": [graph["graph"] for graph in longer], "frameworks": result}
 
 
-def recorded_guidance_work(blocks):
+def recorded_work(jobs, fields_by_mode, *, allow_unavailable=False):
     by_mode = {}
-    for block in blocks:
-        for job in block["jobs"]:
-            mode = job["mode"]
-            counters = {name: job.get(name) for name in GUIDANCE_COUNTERS[mode.split("_")[0]]}
-            for name, value in counters.items():
-                if value is not None and (type(value) is not int or value < 0):
-                    raise ValueError(f"{mode}: invalid {name} counter")
-            by_mode.setdefault(mode, []).append(counters)
+    for mode, job in jobs:
+        counters = {name: job.get(name) for name in fields_by_mode[mode]}
+        for name, value in counters.items():
+            if value is None and allow_unavailable:
+                continue
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{mode}: invalid {name} counter")
+        by_mode.setdefault(mode, []).append(counters)
     return by_mode
 
 
@@ -326,13 +332,21 @@ def summarize(suite, table, stats, runs, *, include_signatures=False):
                 if entry["graph_sha256"] != expected:
                     raise ValueError("normalized Candidate Tree input does not match")
                 paired, extra, fingerprints = candidate_blocks(entry, document["modes"], runs, count)
+                if include_signatures:
+                    selected = ((mode, entry["blocks"][str(index)][mode])
+                                for index in range(runs) for mode in CANDIDATE_WORK_MODES)
+                    extra["recorded_work_by_mode"] = recorded_work(selected, WORK_COUNTERS[table])
             else:
                 declared = inputs[graph] if table == "iv" else inputs[graph]["sha256"]
                 if declared != identity["sha256"]:
                     raise ValueError("recorded input SHA-256 does not match the canonical graph")
                 paired, extra, fingerprints = other_blocks(checkpoints[graph], table, runs, count)
-                if table == "vi" and include_signatures:
-                    extra["recorded_work_by_mode"] = recorded_guidance_work(checkpoints[graph])
+                if include_signatures and table in WORK_COUNTERS:
+                    selected = ((job["mode"], job) for block in checkpoints[graph] for job in block["jobs"])
+                    extra["recorded_work_by_mode"] = recorded_work(
+                        selected, WORK_COUNTERS[table], allow_unavailable=table == "vi"
+                    )
+                if include_signatures and table == "vi":
                     extra["guidance_timing_by_block"] = guidance_timing_by_block(
                         checkpoints[graph], paired, extra["direct_guidance"]
                     )
