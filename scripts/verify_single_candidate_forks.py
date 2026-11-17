@@ -92,8 +92,11 @@ def check(mode, graph, builds, pipeline, expected):
         raise RuntimeError(f"{label}: native exit {run.returncode}\n{run.stderr[-2300:]}")
     rows = base.parse_emitted(run.stdout)
     count = int(re.search(r"^Count: (\d+)$", run.stdout, re.MULTILINE)[1])
-    if count != len(expected) or len(rows) != count or set(rows) != expected:
-        raise ValueError(f"{label}: exact outputs differ from the closure oracle")
+    actual = set(rows)
+    if count != len(expected) or len(rows) != count or actual != expected:
+        raise ValueError(f"{label}: count={count}, expected={len(expected)}, "
+                         f"examples of missing={sorted(expected-actual)[:2]}, extra={sorted(actual-expected)[:2]}, "
+                         f"duplicates={len(rows)-len(actual)}")
     checks = Counter(re.findall(r"^\[FORK_CHECK\] (\S+)$", run.stderr, re.MULTILINE))
     checks["skipped"] = int(re.search(r"^V56_PreFork_Skips: (\d+)$", run.stdout, re.MULTILINE)[1])
     return checks
@@ -105,13 +108,17 @@ def main():
         root = Path(scratch)
         pipeline = archived_pipeline(root)
         builds = pipeline["build"]()
-        oracle = pipeline["base"].oracle_set
+        base = pipeline["base"]
+        source = root / "header3.txt"
         cases = 0
         for name, nl, nr, edges in fixtures():
             cases += 1
             graph = root / f"{name}.txt"
-            graph.write_text(f"{nl} {nr} {len(edges)}\n" + "".join(f"{u} {v}\n" for u, v in edges), encoding="ascii")
-            expected = oracle(edges)
+            source.write_text(f"{nl} {nr} {len(edges)}\n" + "".join(f"{u} {v}\n" for u, v in edges), encoding="ascii")
+            # The benchmark prepares a two-column input for the native loader.
+            if base.cleanup_graph(source, graph) != len(edges):
+                raise ValueError(f"{name}: unexpected prepared edge count")
+            expected = base.oracle_set(edges)
             map_layout, inline, cursor, prefork = (check(mode, graph, builds, pipeline, expected) for mode in MODES)
             if any(control["skipped"] for control in (map_layout, inline, cursor)) or prefork["empty"]:
                 raise ValueError(f"{name}: Pre-fork settings did not activate as expected")
@@ -129,3 +136,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
