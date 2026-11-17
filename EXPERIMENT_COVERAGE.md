@@ -146,6 +146,14 @@ The summarizer checks graph identities, complete blocks, positive times,
 reference counts, and compatible fingerprints. The Table III JSON also
 compares successive builds directly within each block, along with the
 comparison of the combined Cursor and Pre-fork changes against Inline alone.
+
+Run `python3 scripts/verify_single_candidate_forks.py` to check the four
+Table III modes against a closure oracle. It checks all 511 nonempty edge
+sets on up to three vertices per side and 16 larger generated graphs.
+An isolated copy of the archived native source records actual Cursor
+skips and checks the Pre-fork guard against ordinary fork construction.
+These checks run separately from the timing builds.
+
 The fifth speedup column of
 Table IV divides inline/no-CR by inline+CR search time in each block. The
 archived aggregate report gives a +7.7% geometric mean for that comparison.

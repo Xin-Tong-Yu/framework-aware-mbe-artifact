@@ -40,6 +40,9 @@ jobs:
       - name: Check materialized and compressed MBET reporting
         run: python3 scripts/verify_fair_reporting.py
 
+      - name: Check Candidate Tree Cursor and Pre-fork
+        run: python3 scripts/verify_single_candidate_forks.py
+
       - name: Compare Vector and Compact Double branch traces
         run: python3 scripts/verify_double_branch_trace.py
 
