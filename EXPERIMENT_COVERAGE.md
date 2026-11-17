@@ -120,6 +120,10 @@ for the paired anchors and retains the requested stack allowance when it is
 already at least 64 MiB. Earlier checkpoints remain readable by the table
 summarizer. New measurements use a separate campaign directory when the older
 checkpoint lacks the timing metadata required for resumption.
+For Table V, the driver checks equal Vector/Compact branch counts in both
+terminal settings before accepting each block. Every ST anchor also requires
+a peak RSS record from GNU time. A failed block stops the current graph.
+Resumption retains the other validated blocks by their original seeds.
 
 Rebuild a specific table without rerunning the benchmark by passing its
 Roman numeral in lowercase:

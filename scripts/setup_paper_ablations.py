@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip"
 REVISED_DRIVERS = {
     "MBE_CORRECTED_13DATA/bench.py": ROOT / "src/paper_ablations/termination_guidance/bench.py",
+    "MBE_NEW_P0_20261109/bench.py": ROOT / "src/paper_ablations/double_state/bench.py",
     "V63_MBET_CORE_SELECT/v63_run.py": ROOT / "src/paper_ablations/single_candidate_tree/v63_run.py",
 }
 EXPECTED_SHA256 = "e0583c48ed998b3e127cdaaff873e6e99a0234e0f932da9c33f789cf47f0ac4b"
