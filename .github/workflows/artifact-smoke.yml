@@ -37,6 +37,9 @@ jobs:
       - name: Require pure ET2 path, cycle, and budget fallback coverage
         run: python3 scripts/verify_pure_terminals.py
 
+      - name: Compare Vector and Compact Double branch traces
+        run: python3 scripts/verify_double_branch_trace.py
+
       - name: Verify packaged MBET resume through the CLI
         shell: bash
         run: |

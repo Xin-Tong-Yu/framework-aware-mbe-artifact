@@ -152,7 +152,11 @@ archived aggregate report gives a +7.7% geometric mean for that comparison.
 The Table IV JSON divides that within-block ratio by the CR ratio under the
 flat layout to quantify the interaction with Result Tree layout.
 Table V additionally checks equal branch counts for each matched Vector/Compact
-comparison. Its memory cells are medians of whole-process peak RSS over the
+comparison. Run `python3 scripts/verify_double_branch_trace.py` to compare its
+complete selected, candidate, and excluded state sequences and pivot choices
+on small graphs in both terminal settings. It also compares exact output
+sets against a closure oracle. The script instruments a temporary copy of the
+pinned sources for this check. The memory cells are medians of whole-process peak RSS over the
 ten ST runs of each build. The JSON files include the raw paired ratios and
 checkpoint hashes. Table V also records paired wall-time ratios. Table VI
 reports direct added-policy
