@@ -190,6 +190,16 @@ suite geometric-mean extrema when each graph may omit a different block.
 The range describes sensitivity to the recorded blocks. The unit of deletion
 is a whole within-graph block, including its timed reference runs.
 
+For Table II the report also compares ST-noCR directly to MBET and MBETM.
+These ratios cancel the same ST+CR time within each block, keeping tuple
+materialization and checksum semantics matched in the direct comparisons.
+
+`python3 scripts/verify_fair_reporting.py` checks all four Table II modes
+with and without tuple emission. The fixtures use a quotient-graph closure
+oracle to cover completions that span multiple bitmap words in both input
+orientations. The checksum-only runs are checked against an independent
+implementation of the fingerprint computed on the expected tuples.
+
 ## Regenerating the unguided ET table
 
 Run the thirteen-graph campaign and keep each CSV with its run manifest. Use

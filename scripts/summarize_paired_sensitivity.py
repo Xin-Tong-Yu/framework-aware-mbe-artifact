@@ -13,7 +13,13 @@ TABLES = ("ii", "iii", "iv", "v", "vi", "vii")
 
 def block_ratios(table, columns, graph):
     if table == "ii":
-        return {f"ST+CR/{reference}": ratios for reference, ratios in graph["block_ratios"].items()}
+        paired = graph["block_ratios"]
+        ratios = {f"ST+CR/{reference}": series for reference, series in paired.items()}
+        # Cancelling each block's ST+CR time yields the direct materialized
+        # comparison. A ratio of independently summarized medians would not.
+        for reference in ("mbet", "mbetm"):
+            ratios[f"ST-noCR/{reference}"] = [a / b for a, b in zip(paired[reference], paired["st_nocr"])]
+        return ratios
     if table == "vii":
         return {f"{framework}:{contrast}": values["block_ratios"]
                 for framework, results in graph["frameworks"].items()
