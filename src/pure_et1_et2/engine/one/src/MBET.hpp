@@ -112,6 +112,16 @@ struct MBETFastConfig {
   std::string emit_path;
 };
 
+#ifdef MBE_ET_PROFILE
+struct MBETTerminalProfile {
+  static constexpr unsigned sample_interval = 64;
+  uint64_t gate_samples = 0, terminal_samples = 0;
+  uint64_t output_calls = 0, output_samples = 0;
+  uint64_t gate_ns = 0, terminal_ns = 0, fallback_ns = 0;
+  uint64_t matching_ns = 0, generate_ns = 0, commit_ns = 0, output_ns = 0;
+};
+#endif
+
 struct MBETFastStats {
   size_t outputs = 0;
   uint64_t checksum_xor = 0;
@@ -127,6 +137,9 @@ struct MBETFastStats {
   uint64_t v59_selected_mask=0, v59_selected_et1=0, v59_selected_et2=0;
   uint64_t v59_mask_hits=0, v59_et1_hits=0, v59_et2_hits=0;
   uint64_t v59_solver_failed=0, v59_legacy_et2_skipped=0;
+#ifdef MBE_ET_PROFILE
+  MBETTerminalProfile et_profile;
+#endif
   uint64_t v60_root_reject=0, v60_early_reject=0;
   uint64_t v61_flat_rows_captured=0, v61_fast_sort_batches=0, v61_fast_emit_batches=0;
   uint64_t v62_tree_mask_nodes=0, v62_tree_mask_leaves=0;
@@ -710,6 +723,9 @@ class MBETFast {
     result_tree_size_max_ = 0;
     result_tree_size_total_ = 0;
     stats_ = {};
+#ifdef MBE_ET_PROFILE
+    sample_terminal_ = false;
+#endif
 #ifdef MBE_ET13_DIAG
     et13_ = {};
 #endif
@@ -1228,7 +1244,37 @@ class MBETFast {
     return SplitMix64(a ^ SplitMix64(b + ids.size()));
   }
 
+#ifdef MBE_ET_PROFILE
+  using ETProfileClock = std::chrono::steady_clock;
+  bool sample_terminal_ = false;
+
+  static bool ProfileSample(uint64_t ordinal) {
+    return SplitMix64(ordinal) % MBETTerminalProfile::sample_interval == 0;
+  }
+
+  static uint64_t ProfileElapsed(ETProfileClock::time_point begin) {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(ETProfileClock::now() - begin).count();
+  }
+
+  struct ProfileRegion {
+    uint64_t &total_ns;
+    bool sampled;
+    ETProfileClock::time_point begin;
+
+    ProfileRegion(uint64_t &total_ns, bool sampled)
+        : total_ns(total_ns), sampled(sampled),
+          begin(sampled ? ETProfileClock::now() : ETProfileClock::time_point{}) {}
+    ~ProfileRegion() { if (sampled) total_ns += ProfileElapsed(begin); }
+  };
+#endif
+
   void HandleOutput(const VidList &upper, const VidList &lower) {
+#ifdef MBE_ET_PROFILE
+    auto &profile = stats_.et_profile;
+    const bool sample = ProfileSample(++profile.output_calls);
+    profile.output_samples += sample;
+    ProfileRegion output_region(profile.output_ns, sample);
+#endif
 #ifdef MBE_V29_PROFILE
     auto v29_out_watch = DebugTimer<40>::AutoWatch();
     ++v29_output_calls_;
@@ -1533,6 +1579,10 @@ class MBETFast {
   bool ResolveMatchingTerminal(const std::vector<vid_t> &universe,
                                std::vector<vid_t> defects,
                                bool has_full_row) {
+#ifdef MBE_ET_PROFILE
+    // Matching streams its choices through the Result Tree.
+    ProfileRegion matching_region(stats_.et_profile.matching_ns, sample_terminal_);
+#endif
 #ifdef MBE_V29_PROFILE
     auto v29_mis_watch = DebugTimer<43>::AutoWatch();
 #endif
@@ -1859,7 +1909,12 @@ class MBETFast {
         options &= options-1;
       }
     };
-    enumerate(enumerate, 0, 0, 0);
+    {
+#ifdef MBE_ET_PROFILE
+      ProfileRegion generation_region(stats_.et_profile.generate_ns, sample_terminal_);
+#endif
+      enumerate(enumerate, 0, 0, 0);
+    }
     if (overflow) {++stats_.et2_fallback_cap;return false;}
 
     ++stats_.et_hits;
@@ -1873,6 +1928,9 @@ class MBETFast {
     // Only local output order is changed; each same MIS path is inserted once.
     // Sort by decisions on increasing active columns, with kept columns first,
     // to increase prefix locality (no mutation until all MIS are enumerated).
+#ifdef MBE_ET_PROFILE
+    ProfileRegion commit_region(stats_.et_profile.commit_ns, sample_terminal_);
+#endif
     const bool reuse = config_.et2_trie_prefix_reuse &&
                        mis.size() >= config_.et2_reuse_min_mis && nc > 0;
     auto &cached_prefix = scratch.cached_prefix;
@@ -4204,7 +4262,23 @@ class MBETFast {
 
   bool TryV59Exclusive(NeighborTreeNode *root) {
     ++stats_.v59_dispatch_calls;
+#ifdef MBE_ET_PROFILE
+    auto &profile = stats_.et_profile;
+    const bool sample_gate = ProfileSample(stats_.v59_dispatch_calls);
+    profile.gate_samples += sample_gate;
+    const auto gate_begin = sample_gate ? ETProfileClock::now() : ETProfileClock::time_point{};
+#endif
     const V59Choice choice=SelectV59(root);
+#ifdef MBE_ET_PROFILE
+    if (sample_gate) profile.gate_ns += ProfileElapsed(gate_begin);
+    // The selected solvers complete before Find can recurse.
+    if (choice != V59Choice::DFS) {
+      const uint64_t attempt = stats_.v59_dispatch_calls - stats_.v59_selected_dfs;
+      sample_terminal_ = ProfileSample(attempt);
+      profile.terminal_samples += sample_terminal_;
+    }
+    const auto terminal_begin = sample_terminal_ ? ETProfileClock::now() : ETProfileClock::time_point{};
+#endif
     bool ok=false;
     switch(choice) {
       case V59Choice::DFS: ++stats_.v59_selected_dfs; return false;
@@ -4225,6 +4299,14 @@ class MBETFast {
         break;
     }
     if(!ok) ++stats_.v59_solver_failed;
+#ifdef MBE_ET_PROFILE
+    if (sample_terminal_) {
+      const uint64_t elapsed = ProfileElapsed(terminal_begin);
+      profile.terminal_ns += elapsed;
+      if (!ok) profile.fallback_ns += elapsed;
+    }
+    sample_terminal_ = false;
+#endif
     // Exclusive means *no second ET attempt*. Original DFS is authoritative.
     return ok;
   }

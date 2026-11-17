@@ -223,3 +223,67 @@ for graph in youtube github dblp; do
 done
 python3 scripts/summarize_double_gate.py "$dir" --json "$dir/summary.json"
 ```
+
+### Double terminal phase profiling
+
+Run the `double-profile` matrix separately on GitHub, DBLP, and Twitter.
+Each of the five blocks pairs the ordinary ST, ET1, and ET2 runs with the
+same modes instrumented. All six modes use Compact state, classic pivots,
+and per-result fingerprints. The three instrumented modes select about one
+in 64 invocations by hashing the eligibility or terminal call ordinal.
+
+```sh
+dir=outputs/icde_eab_double_profile
+runner="$dir/MBE_PURE_ET_PROFILE.zip"
+python3 scripts/package_pure_gate.py "$runner"
+ulimit -s 262144
+for graph in github dblp twitter; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$runner" all "data_clean/$graph.txt" \
+    --modes double-profile --repeats 5 --out "$dir/$graph.csv" --resume || exit
+done
+python3 scripts/summarize_double_profile.py "$dir" --runner "$runner" --json "$dir/summary.json"
+```
+
+The JSON records the ratio of instrumented to ordinary time per block,
+sample sizes, measured phase sums, and phase estimates. An estimate scales
+the measured sum by total calls divided by sampled calls for that phase.
+The same traversal samples the same ordinals on every repeat, so repeated
+timings capture timing variation for those samples.
+Eligibility includes the exclusion check and degree scan. Setup, complement
+construction, component decomposition, and generation cover the timed parts
+of terminal attempts. Generation includes the terminal output callback.
+Fallback time is the setup and construction time in failed attempts, which
+is already in those two phase sums. The callback timing covers final count
+and fingerprint accumulation. Incremental vertex hashing remains in solver
+work. Use the paired ordinary times for performance comparisons and the
+instrumented phase estimates to describe where terminal work is spent.
+
+### Single terminal phase profiling
+
+Use the same supplemental ZIP and substitute `--modes single-profile` on the
+same three inputs. Use a separate output directory for this matrix. Its ST,
+ET1, and ET2 modes use the same state settings and per-result fingerprinting
+with TG and CR disabled. The profiler samples roughly one in 64 selector,
+terminal, and final output calls using their respective ordinals.
+
+```sh
+dir=outputs/icde_eab_single_profile
+runner="$dir/MBE_PURE_ET_PROFILE.zip"
+python3 scripts/package_pure_gate.py "$runner"
+ulimit -s 262144
+for graph in github dblp twitter; do
+  taskset -c 0 env MBE2_OPT=O3 MBE2_CACHE="$dir/build_cache" \
+    python3 "$runner" all "data_clean/$graph.txt" \
+    --modes single-profile --repeats 5 --out "$dir/$graph.csv" --resume || exit
+done
+python3 scripts/summarize_single_profile.py "$dir" --runner "$runner" --json "$dir/summary.json"
+```
+
+The matching resolver streams its enumeration into the Result Tree, so
+generation and insertion are timed together. ET2 records MIS generation and
+Result Tree integration separately, with verification and other work given
+by the remainder of total attempt time. Failed-attempt time is contained
+in the total attempt time. The final output callback samples filtering,
+counting, and fingerprinting after the Result Tree has merged entries from
+terminal and ordinary search.

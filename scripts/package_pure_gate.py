@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the Double gate controls alongside the archived pure runner."""
+"""Package supplemental gate and profiling modes from the pure runner."""
 
 import argparse
 from pathlib import Path
@@ -9,12 +9,12 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "runners/MBE_PURE_ET1_ET2.zip"
 SOURCE = ROOT / "src/pure_et1_et2"
-OVERLAYS = ("__main__.py", "engine/two/ips.hpp")
+OVERLAYS = ("__main__.py", "engine/two/ips.hpp", "engine/one/main.cpp", "engine/one/src/MBET.hpp")
 
 
 def package(output):
     if output.resolve() == BASE.resolve():
-        raise ValueError("Choose a separate output path for the gate experiment.")
+        raise ValueError("Choose a separate output path for the supplemental experiment.")
     output.parent.mkdir(parents=True, exist_ok=True)
     files = {name: (SOURCE / name).read_bytes().replace(b"\r\n", b"\n") for name in OVERLAYS}
     with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".zip.tmp", delete=False) as temp:

@@ -52,3 +52,18 @@ jobs:
           bash scripts/run_paper_ablations.sh check-source
           bash scripts/run_paper_ablations.sh oracle 20
           bash scripts/run_paper_ablations.sh prefix-oracle
+
+      - name: Smoke the Single and Double phase profilers
+        shell: bash
+        run: |
+          scratch=outputs/ci/phase_profile
+          runner="$scratch/MBE_PURE_ET_PROFILE.zip"
+          python3 scripts/package_pure_gate.py "$runner"
+          for framework in single double; do
+            target="$scratch/$framework"
+            MBE2_OPT=O3 MBE2_CACHE="$scratch/build_cache" \
+              python3 "$runner" all data_clean/forum.txt --modes "$framework-profile" \
+              --repeats 5 --timeout 30 --out "$target/forum.csv"
+            python3 "scripts/summarize_${framework}_profile.py" "$target" --runner "$runner" \
+              --graphs forum --json "$target/smoke.json"
+          done

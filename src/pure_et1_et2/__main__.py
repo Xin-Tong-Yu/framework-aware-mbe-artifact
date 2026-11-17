@@ -122,11 +122,23 @@ PURE_1V2_MATRIX=['single_st','single_et1','single_et2',
                  'double_compact_st','double_compact_et1','double_compact_et2']
 PURE_1_MATRIX=['single_st','single_et1','double_compact_st','double_compact_et1']
 PURE_2_MATRIX=['single_st','single_et2','double_compact_st','double_compact_et2']
+SINGLE_PROFILE_CONTROLS = ('single_st', 'single_et1', 'single_et2')
+SINGLE_PROFILE_MATRIX = list(SINGLE_PROFILE_CONTROLS)
+for control in SINGLE_PROFILE_CONTROLS:
+    sampled_mode = control + '_profile'
+    single(sampled_mode, **MODES[control][1], profile=True)
+    SINGLE_PROFILE_MATRIX.append(sampled_mode)
 # Measure the eligibility scan with direct solving disabled and classic pivots fixed.
 double('double_compact_st_no_gate', skip_et_gate=True)
 double('double_compact_st_gate1', targetdegree=1)
 DOUBLE_GATE_CONTROLS = ('double_compact_st_no_gate', 'double_compact_st_gate1', 'double_compact_st')
 DOUBLE_GATE_MATRIX = [*DOUBLE_GATE_CONTROLS, 'double_compact_et1', 'double_compact_et2']
+DOUBLE_PROFILE_CONTROLS = ('double_compact_st', 'double_compact_et1', 'double_compact_et2')
+DOUBLE_PROFILE_MATRIX = list(DOUBLE_PROFILE_CONTROLS)
+for control in DOUBLE_PROFILE_CONTROLS:
+    sampled_mode = control + '_profile'
+    double(sampled_mode, **MODES[control][1], profile=True, profile_interval=64)
+    DOUBLE_PROFILE_MATRIX.append(sampled_mode)
 # Independent guidance-inclusive study, not a pure biplex threshold ablation.
 GUIDED_1V2_MATRIX=['single_st','single_et1','single_et1_tg1',
                    'single_et2','single_et2_tg2',
@@ -247,6 +259,7 @@ def single_flags(d):
     if d['result']=='inline': flags+=['-DMBE_V42_INLINE_RESULT=1']
     if d['cr']:flags+=['-DMBE_V42_FAST_REPORT=1']
     if d.get('tgfast'):flags+=['-DMBE_TG2_STACK_MISSES=1']
+    if d.get('profile'):flags+=['-DMBE_ET_PROFILE=1']
     return flags
 
 def double_flags(d):
@@ -266,7 +279,10 @@ def double_flags(d):
     if d.get('etreuse'): flags+=['-DIPS_ET2_SCRATCH_REUSE=1']
     if d.get('matchfast'): flags+=['-DIPS_ET2_FAST_MATCHING_COMPONENTS=1']
     if d.get('targetdegree',2)!=2: flags+=['-DIPS_ET_TARGET_DEGREE='+str(d['targetdegree'])]
-    if d.get('profile'): flags+=['-DIPS_ET_PROFILE=1']
+    if d.get('profile'):
+        flags+=['-DIPS_ET_PROFILE=1']
+        if 'profile_interval' in d:
+            flags+=['-DIPS_ET_PROFILE_SAMPLE_INTERVAL='+str(d['profile_interval'])]
     if d.get('pattern'): flags+=['-DIPS_ET2_PATTERN_CACHE=1']
     return flags
 
@@ -352,6 +368,42 @@ def convert_graph(graph, single, double):
             o.write(f'{len(left)} {len(right)} {len(edges)}\n')
             for a,b in sorted(edges):o.write(f'{a} {b}\n')
 
+PROFILE_STATS = {
+    'et_gate_ms': 'Gate_ms',
+    'et_setup_ms': 'Setup_ms',
+    'et_build_ms': 'Build_ms',
+    'et_decompose_ms': 'Decompose_ms',
+    'et_generate_ms': 'Generate_ms',
+    'et_gate_calls': 'Gate_Calls',
+    'et_terminal_calls': 'Terminal_Calls',
+    'et_candidate_sum': 'Total_Candidates',
+    'et_max_candidate': 'Max_Candidates',
+    'et_profile_interval': 'Sample_Interval',
+    'et_gate_samples': 'Gate_Samples',
+    'et_terminal_samples': 'Terminal_Samples',
+    'et_gate_passes': 'Gate_Passes',
+    'et_fallbacks': 'Fallbacks',
+    'et_fallback_ms': 'Fallback_ms',
+    'et_emit_ms': 'Emit_ms',
+}
+SINGLE_PROFILE_STATS = {
+    'single_profile_interval': 'Interval',
+    'single_gate_calls': 'GateCalls',
+    'single_gate_samples': 'GateSamples',
+    'single_terminal_samples': 'TerminalSamples',
+    'single_fallbacks': 'Fallbacks',
+    'single_output_calls': 'OutputCalls',
+    'single_output_samples': 'OutputSamples',
+    'single_gate_ns': 'GateNs',
+    'single_terminal_ns': 'TerminalNs',
+    'single_fallback_ns': 'FallbackNs',
+    'single_matching_ns': 'MatchingNs',
+    'single_generate_ns': 'GenerateNs',
+    'single_commit_ns': 'CommitNs',
+    'single_output_ns': 'OutputNs',
+}
+
+
 def parse_stats(kind,stdout):
     def pick(pattern):
         m=re.search(pattern,stdout,re.MULTILINE)
@@ -372,14 +424,17 @@ def parse_stats(kind,stdout):
             calls=pick(r'^V59_Selected_ET2:\s*(\d+)')
         fp=pick(r'^Checksum_XOR:\s*(\d+)')+'|'+pick(r'^Checksum_SUM:\s*(\d+)')
         rss=pick(r'^Peak_RSS_MiB:\s*([\d.]+)')
-        return dict(time_s=sec,count=count,et_attempt=calls,et_hit=e_used,
+        stats = dict(time_s=sec,count=count,et_attempt=calls,et_hit=e_used,
                     et_degree2_hit=term,fingerprint=fp,rss_mib=rss,
                     branch_calls='',et_output_count='')
+        stats.update({name: pick(rf'^Single_ET_Profile_{label}:\s*(\d+)')
+                      for name, label in SINGLE_PROFILE_STATS.items()})
+        return stats
     ms=pick(r'Maximal_BiClique_Count:\s*(\d+), Time:\s*(\d+) ms')
     count=ms
     time_ms=pick(r'Maximal_BiClique_Count:\s*\d+, Time:\s*(\d+) ms')
     fine=pick(r'^Search_Time_s:\s*([\d.eE+-]+)')
-    return dict(time_s=fine or (str(float(time_ms)/1000) if time_ms else ''),count=count,
+    stats = dict(time_s=fine or (str(float(time_ms)/1000) if time_ms else ''),count=count,
                 et_attempt=pick(r'^ET_Eligible / TT =\s*(\d+)'),
                 et_hit=pick(r'^ET_Used / TT =\s*(\d+)'),
                 et_degree2_hit=pick(r'^2Biplex_Degree2_Hits:\s*(\d+)'),
@@ -391,16 +446,10 @@ def parse_stats(kind,stdout):
                 tg2_score_states=pick(r'^TG2_Score_States:\s*(\d+)'),
                 branch_calls=pick(r'^Branch_Calls:\s*(\d+)'),
                 et_output_count=pick(r'^ET_Output_Count:\s*(\d+)'),
-                et_gate_ms=pick(r'^ET_Profiler_Gate_ms:\s*([\d.]+)'),
-                et_setup_ms=pick(r'^ET_Profiler_Setup_ms:\s*([\d.]+)'),
-                et_build_ms=pick(r'^ET_Profiler_Build_ms:\s*([\d.]+)'),
-                et_decompose_ms=pick(r'^ET_Profiler_Decompose_ms:\s*([\d.]+)'),
-                et_generate_ms=pick(r'^ET_Profiler_Generate_ms:\s*([\d.]+)'),
-                et_gate_calls=pick(r'^ET_Profiler_Gate_Calls:\s*(\d+)'),
-                et_terminal_calls=pick(r'^ET_Profiler_Terminal_Calls:\s*(\d+)'),
-                et_candidate_sum=pick(r'^ET_Profiler_Total_Candidates:\s*(\d+)'),
-                et_max_candidate=pick(r'^ET_Profiler_Max_Candidates:\s*(\d+)'),
                 et_pattern_components=pick(r'^ET_Pattern_Components:\s*(\d+)'))
+    stats.update({name: pick(rf'^ET_Profiler_{label}:\s*([\d.]+)')
+                  for name, label in PROFILE_STATS.items()})
+    return stats
 
 def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
     kind,d=MODES[mode]
@@ -441,9 +490,7 @@ def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,q
             print(diag_line,flush=True)
     if proc.returncode:die(mode+' returned '+str(proc.returncode)+'\n'+proc.stdout[-1500:]+'\n'+proc.stderr[-1500:])
     result=parse_stats(MODES[mode][0],proc.stdout)
-    for field in ('et_gate_ms','et_setup_ms','et_build_ms','et_decompose_ms',
-                  'et_generate_ms','et_gate_calls','et_terminal_calls',
-                  'et_candidate_sum','et_max_candidate','et_pattern_components'):
+    for field in (*PROFILE_STATS, *SINGLE_PROFILE_STATS, 'et_pattern_components'):
         result.setdefault(field,'')
     result.setdefault('tg2_score_changes','')
     result.setdefault('tg2_cache_used','')
@@ -538,7 +585,9 @@ def all_matrix(args,cache,archive):
     elif args.modes=='pure':modes=PURE_1V2_MATRIX
     elif args.modes=='pure1':modes=PURE_1_MATRIX
     elif args.modes=='pure2':modes=PURE_2_MATRIX
+    elif args.modes=='single-profile':modes=SINGLE_PROFILE_MATRIX
     elif args.modes=='double-gate':modes=DOUBLE_GATE_MATRIX
+    elif args.modes=='double-profile':modes=DOUBLE_PROFILE_MATRIX
     elif args.modes=='guided':modes=GUIDED_1V2_MATRIX
     elif args.modes=='biplex':modes=BIPLEX_COMPARE_MATRIX
     elif args.modes=='pair':modes=['double_compact_et1_tg1','double_compact_et2_tg2']
@@ -559,9 +608,7 @@ MATRIX_FIELDS = (
     'graph', 'block', 'mode', 'kind', 'time_s', 'wall_s', 'count', 'et', 'tg',
     'et_attempt', 'et_hit', 'et_degree2_hit', 'fingerprint', 'rss_mib',
     'tg2_score_states', 'tg2_score_changes', 'tg2_cache_used', 'tg2_cache_fallback',
-    'branch_calls', 'et_output_count', 'et_gate_ms', 'et_setup_ms', 'et_build_ms',
-    'et_decompose_ms', 'et_generate_ms', 'et_gate_calls', 'et_terminal_calls',
-    'et_candidate_sum', 'et_max_candidate', 'et_pattern_components',
+    'branch_calls', 'et_output_count', *PROFILE_STATS, *SINGLE_PROFILE_STATS, 'et_pattern_components',
 )
 
 
@@ -761,7 +808,7 @@ def main():
         parser.add_argument('--out',default='mbe_2biplex_results.csv')
         parser.add_argument('--resume', action='store_true', help='Reuse validated complete blocks with matching run settings')
         parser.add_argument('--modes',default=('youtube' if command_name=='youtube' else 'main'),
-                            help='pure|pure1|pure2|double-gate|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
+                            help='pure|pure1|pure2|single-profile|double-gate|double-profile|guided|main|smoke|opt|youtube|pivot|cache|biplex|pair|profile|comma-separated mode names')
         a=parser.parse_args(argv[1:])
         if a.repeats<1:die('--repeats must be >= 1')
         if command_name=='youtube':
