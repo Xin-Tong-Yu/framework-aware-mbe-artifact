@@ -34,7 +34,7 @@ For a lightweight native correctness test, use `bash scripts/run_paper_ablations
 
 **Timing.** Single and Double internal search timers may cover different portions of processing. The MBET-family, guided ablations, pure-ET study, and native IPS count-aggregation comparison also have experiment-specific reporting contracts. Compare timings within matched runs of the same study and report compiler and machine information.
 
-**Input integrity.** The graph files use `nL nR m` as their header; it is not an edge. SHA-256 manifests identify the exact canonical inputs. The archive part manifests permit byte-for-byte reconstruction from GitHub.
+**Input integrity.** The graph files start with the `nL nR m` header. SHA-256 manifests identify the exact canonical inputs. Both the split artifact archive and the documented conversion of the original KONECT archives reproduce all thirteen input files byte for byte. [Data guide](data/README.md)
 
 **Generated results.** The repository ships sources, exact input graphs, and experiment drivers. Per-run measurements are kept separately from Git.
 
@@ -80,6 +80,8 @@ keeps the native binaries, reports, and checkpoints there. Repeat with the
 same CPU, runtime environment, and directory to reuse completed blocks.
 The runner checks its saved `protocol.txt` before resuming. A changed run
 configuration uses a new output directory so the original records stay available.
+The launcher reports each incomplete study and continues through the remaining
+studies. It exits with a failure status if any table still lacks validated blocks.
 
 Rebuild a specific table without rerunning the benchmark by passing its
 Roman numeral in lowercase:

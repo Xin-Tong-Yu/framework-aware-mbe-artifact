@@ -49,19 +49,25 @@ if [[ ! -x "$suite/MBE_FAST_FOUR_MODES/bin/one_core" ]]; then
     taskset -c "$cpu" bash "$suite/MBE_FAST_FOUR_MODES/build.sh"
 fi
 
-taskset -c "$cpu" bash "$suite/run_experiments.sh" six-mode \
-    --runs "$runs" --timeout "$timeout" --cpu "$cpu" --retry-failed
-python3 scripts/summarize_state_and_guidance.py "$suite" vi "$out"
+status=0
+run_study() {
+    local command="$1"
+    local table="$2"
+    shift 2
+    echo "[STUDY] $command for Table $table"
+    if ! taskset -c "$cpu" bash "$suite/run_experiments.sh" "$command" \
+        --runs "$runs" --timeout "$timeout" --cpu "$cpu" --retry-failed "$@"; then
+        echo "[STUDY_INCOMPLETE] $command exited unsuccessfully" >&2
+        status=1
+    fi
+    if ! python3 scripts/summarize_state_and_guidance.py "$suite" "$table" "$out"; then
+        echo "[TABLE_INCOMPLETE] $table needs additional validated blocks" >&2
+        status=1
+    fi
+}
 
-taskset -c "$cpu" bash "$suite/run_experiments.sh" double-2x2 \
-    --runs "$runs" --timeout "$timeout" --cpu "$cpu" --retry-failed
-python3 scripts/summarize_state_and_guidance.py "$suite" v "$out"
-
-taskset -c "$cpu" bash "$suite/run_experiments.sh" candidate \
-    --runs "$runs" --timeout "$timeout" --cpu "$cpu" --retry-failed \
-    --modes st_only v63_inline_st v63_core_st v63_core_d
-python3 scripts/summarize_state_and_guidance.py "$suite" iii "$out"
-
-taskset -c "$cpu" bash "$suite/run_experiments.sh" result-cr \
-    --runs "$runs" --timeout "$timeout" --cpu "$cpu" --retry-failed
-python3 scripts/summarize_state_and_guidance.py "$suite" iv "$out"
+run_study six-mode vi
+run_study double-2x2 v
+run_study candidate iii --modes st_only v63_inline_st v63_core_st v63_core_d
+run_study result-cr iv
+exit "$status"

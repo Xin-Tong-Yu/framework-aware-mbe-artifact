@@ -14,7 +14,7 @@ Original authors and other rights holders retain their applicable intellectual-p
 
 **All thirteen experimental graph datasets were downloaded from the [Koblenz Network Collection (KONECT)](https://konect.cc/)**, curated by Jérôme Kunegis. KONECT is the common acquisition source, although the original networks may have their own respective creators and citation requirements.
 
-The data preparation performed for these experiments was described by the authors as a **format conversion only, without intentional deletion, sampling, or filtering of graph records**. The resulting bipartite edge-list files are presented in the format expected by the benchmark programs:
+The archived converter used the first two fields of each edge record, merged repeated vertex pairs, compacted the IDs on each side, and placed the smaller incident side first. The benchmark format uses a size header followed by the distinct pairs.
 
 ```text
 nL nR m
@@ -23,7 +23,7 @@ left_vertex_id right_vertex_id
 ...
 ```
 
-The first line is graph metadata, not an edge. The files represent the same intended bipartite incidence relations as the downloaded source graphs. The repository includes exact checksums for the converted inputs, not the original KONECT downloads; therefore the provided hashes establish reproducibility of the experimental inputs rather than an independently audited record-by-record comparison with the source downloads.
+The first line is graph metadata. The canonical manifest identifies the thirteen inputs used by the benchmark. All thirteen were rebuilt byte for byte with the archived converter. The source map gives the archive and raw-member hashes, and the data guide documents the isolated vertices included in the UKWiki and Escorts headers. [Data guide](data/README.md) · [Raw source map](data/KONECT_SOURCE_MAP.csv)
 
 The thirteen graph labels used in the experiments are: Forum, UKWiki, Escorts, YouTube, GitHub, BookCrossing, StackOverflow, Actors, Twitter, BibSonomy, IMDb, Amazon, and DBLP. The canonical converted input files are stored in six archive parts under `data/parts/`, with exact SHA-256 hashes in `data/COLLECTED_INPUT_SHA256.csv` and graph measurements in `data/GRAPH_STATISTICS.csv`.
 

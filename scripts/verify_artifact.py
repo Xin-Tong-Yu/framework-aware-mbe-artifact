@@ -21,6 +21,8 @@ def sha256(path):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--data-dir', type=Path, default=ROOT / 'data_clean',
+                        help='directory containing the thirteen experimental graph files')
     parser.add_argument('--full-scan', action='store_true', help='also scan every edge for counts and valid vertex IDs')
     args = parser.parse_args()
     manifest = json.loads((ROOT / 'data/ARCHIVE_PARTS.json').read_text())
@@ -36,7 +38,7 @@ def main():
     verified = 0
     for record in rows:
         name = record['graph']
-        path = ROOT / 'data_clean' / record['file_name']
+        path = args.data_dir / record['file_name']
         if not path.is_file():
             problems.append('missing extracted graph: ' + name)
             continue

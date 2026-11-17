@@ -36,7 +36,7 @@ python3 scripts/check_release.py
 
 `prepare_data.py` validates all six committed archive parts, reconstructs the canonical archive, and extracts `data_clean/*.txt`. Each restored file is checked against the manifest SHA-256. The `--full-scan` option additionally validates edge counts and vertex ID ranges.
 
-All thirteen datasets were obtained from [KONECT](https://konect.cc/) and reformatted for the experiment programs, without intentional removal or sampling of graph records. The first line of each graph is **metadata** (`nL nR m`), not a graph edge. Remaining lines contain two-column bipartite edges. The algorithms use this header-aware input contract. See [SOURCE_ATTRIBUTION.md](SOURCE_ATTRIBUTION.md) for the standard KONECT citation and dataset rights.
+The thirteen experimental files represent simple bipartite graphs derived from KONECT records. Conversion retains the vertex pairs, collapses repeated pairs, and relabels the vertices. Each file starts with a graph-size header (`nL nR m`) followed by two-column edges. The data guide records exact source names, preprocessing steps, and checksums. [KONECT](https://konect.cc/) · [Data guide](data/README.md) · [Source attribution](SOURCE_ATTRIBUTION.md)
 
 The reconstructed archive, extracted graphs, local outputs, and build caches are excluded from version control.
 
