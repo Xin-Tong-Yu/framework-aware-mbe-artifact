@@ -95,7 +95,15 @@ reference counts, and compatible fingerprints. Table V additionally checks
 branch equality for each matched Vector/Compact comparison. Its memory cells
 are medians of the peak RSS values for the ten ST runs of each build. The
 JSON files include the raw paired ratios and checkpoint hashes, and Table V
-also records paired wall-time ratios. Each LaTeX file contains the generated
+also records paired wall-time ratios. Table VI reports direct added-policy
+comparisons in its JSON. Each block divides the ET-only time by the ET with
+policy time within the same framework. The published ST comparisons continue
+to use interpolated ST anchors. The Double ST build still runs the matching
+eligibility scan with the terminal solver disabled. The original aggregate
+report retained per-graph medians for the direct comparisons. Their geometric
+mean gains are −3.6% for Single prefix solving with deferral and +19.1% for
+the Double matching-oriented pivot. Recovering the individual block ratios
+requires raw checkpoints or a replay. Each LaTeX file contains the generated
 table rows.
 
 ## Regenerating the unguided ET table

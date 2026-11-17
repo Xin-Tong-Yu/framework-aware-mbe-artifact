@@ -18,6 +18,7 @@ CANDIDATE = ("v63_inline_st", "v63_core_st", "v63_core_d")
 CR = ("flat_cr", "inline_no_cr", "inline_cr")
 DOUBLE = ("vector_st", "compact_st", "vector_et_tg", "compact_et_tg")
 GUIDED = ("one_et", "one_et_tg", "two_et", "two_et_tg_compact")
+DIRECT_GUIDANCE = {"single": GUIDED[:2], "double": GUIDED[2:]}
 CHECKPOINTS = {
     "iii": "diagnostics/V63_CHECKPOINT.json",
     "iv": "MBE_ST_CR_2X2_20261108/diagnostics/MBE_ST_CR_2X2_CHECKPOINT.json",
@@ -152,6 +153,8 @@ def other_blocks(raw, table, runs, count):
     }[table]
     fingerprints = {}
     paired = []
+    direct_modes = DIRECT_GUIDANCE if table == "vi" else {}
+    direct = {framework: [] for framework in direct_modes}
     wall = []
     rss = {mode: [] for mode in anchors}
     for block in raw:
@@ -175,6 +178,8 @@ def other_blocks(raw, table, runs, count):
             paired.append([*ratios, timings["flat_cr"] / timings["inline_cr"]])
         else:
             paired.append(anchored_ratios(jobs, anchors, variants, "ms"))
+        for framework, (control, variant) in direct_modes.items():
+            direct[framework].append(timings[control] / timings[variant])
         if table == "v":
             wall.append(anchored_ratios(jobs, anchors, variants, "wall_s"))
             for vector, compact in ((DOUBLE[0], DOUBLE[1]), (DOUBLE[2], DOUBLE[3])):
@@ -185,6 +190,11 @@ def other_blocks(raw, table, runs, count):
     if table == "v":
         return paired, {"median_peak_rss_mib": {mode: median(values) for mode, values in rss.items()},
                         "block_wall_ratios": wall}
+    if table == "vi":
+        return paired, {
+            "direct_guidance": {framework: {"block_ratios": values, "median_ratio": median(values)}
+                                for framework, values in direct.items()},
+        }
     return paired, {}
 
 
@@ -249,13 +259,19 @@ def summarize(suite, table, stats, runs):
             "median_ratios": [median(values) for values in zip(*paired)], **extra,
         })
 
-    return {
+    summary = {
         "table": table.upper(), "runs": runs, "columns": columns,
         "checkpoint_sha256": hashlib.sha256(raw).hexdigest(), "binaries": binaries,
         "graphs": graphs,
         "geometric_mean_ratios": [geometric_mean(g["median_ratios"][i] for g in graphs)
                                   for i in range(len(columns))],
     }
+    if table == "vi":
+        summary["direct_guidance_geometric_mean_ratios"] = {
+            framework: geometric_mean(g["direct_guidance"][framework]["median_ratio"] for g in graphs)
+            for framework in DIRECT_GUIDANCE
+        }
+    return summary
 
 
 def latex_rows(summary, table):
