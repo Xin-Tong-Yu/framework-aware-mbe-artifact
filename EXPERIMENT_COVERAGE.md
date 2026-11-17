@@ -327,6 +327,12 @@ the measured sum by total calls divided by sampled calls for that phase.
 Each block derives a new sampling seed from the campaign seed and block
 number. The profiled modes in a block use the same seed. Manifests and CSVs
 record these seeds so a resumed block retains the same sampling design.
+New phase experiments shuffle the mode order in each odd-numbered block
+and reverse that order in the following block. Every pair of modes appears
+in both relative orders across each two-block pair. The fifth block uses a
+fresh shuffle. Manifests record the paired reversal design and the
+summarizers verify it and report the full execution order per block.
+Earlier runs used independent shuffles and retain their original orders.
 Eligibility includes the exclusion check and degree scan. Setup, complement
 construction, component decomposition, and generation cover the timed parts
 of terminal attempts. Generation includes the terminal output callback.

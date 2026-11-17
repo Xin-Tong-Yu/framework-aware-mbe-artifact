@@ -117,6 +117,7 @@ class PureResumeTests(unittest.TestCase):
 
     def test_profile_blocks_preserve_distinct_seeds_on_resume(self):
         self.args.modes = "single-profile"
+        self.args.repeats = 5
         modes = self.runner.SINGLE_PROFILE_MATRIX
 
         def recorded(mode, *args, **kwargs):
@@ -137,11 +138,12 @@ class PureResumeTests(unittest.TestCase):
         original = checkpoint["blocks"][0]
         seeds = checkpoint["parameters"]["profile_seeds"]
         self.assertEqual(len(set(seeds)), self.args.repeats)
+        self.assertEqual(checkpoint["parameters"]["order_design"], "paired-reversal-v1")
 
         self.calls.clear()
         with patch.object(self.runner, "execute", side_effect=recorded):
             self.runner.run_matrix(self.args, self.root, self.archive, modes, self.output)
-        self.assertEqual(len(self.calls), 2 * len(modes))
+        self.assertEqual(len(self.calls), 4 * len(modes))
         with self.output.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.DictReader(stream))
         for row in rows:
@@ -149,6 +151,14 @@ class PureResumeTests(unittest.TestCase):
             self.assertEqual(row["profile_seed"], expected)
         self.assertEqual([float(row["time_s"]) for row in rows[:len(modes)]],
                          [row["time_s"] for row in original])
+        orders = [
+            [row["mode"] for row in rows if int(row["block"]) == block]
+            for block in range(1, self.args.repeats + 1)
+        ]
+        self.assertEqual(orders[1], orders[0][::-1])
+        self.assertEqual(orders[3], orders[2][::-1])
+        first = sum(order.index("single_et2_profile") < order.index("single_et1_profile") for order in orders)
+        self.assertIn(first, (2, 3))
 
 
 if __name__ == "__main__":

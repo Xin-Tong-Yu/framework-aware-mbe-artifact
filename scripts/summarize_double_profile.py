@@ -7,6 +7,7 @@ from hashlib import sha256 as digest
 import json
 import math
 from pathlib import Path
+import random
 import re
 from statistics import median
 import sys
@@ -161,6 +162,20 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
     expected = {(block, mode) for block in BLOCKS for mode in modes}
     if len(rows) != len(expected) or set(by_block) != expected:
         raise ValueError(f"{path}: incomplete or duplicated block/mode entries")
+    orders = {block: [row["mode"] for row in rows if int(row["block"]) == block] for block in BLOCKS}
+    order_design = protocol.get("order_design")
+    if order_design == "paired-reversal-v1":
+        rng = random.Random(protocol["seed"])
+        for first in BLOCKS[::2]:
+            shuffled = list(modes)
+            rng.shuffle(shuffled)
+            if orders[first] != shuffled:
+                raise ValueError(f"{path}: block {first} differs from its seeded execution order")
+        for first, second in zip(BLOCKS[::2], BLOCKS[1::2]):
+            if orders[second] != orders[first][::-1]:
+                raise ValueError(f"{path}: blocks {first} and {second} do not reverse execution order")
+    elif order_design is not None:
+        raise ValueError(f"{path}: unexpected profiling order design")
 
     count = int(stat["reference_bicliques"])
     fingerprints = {row["fingerprint"] for row in rows}
@@ -189,7 +204,7 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
     terminal_comparison = compare_terminals(result[controls[1]], result[controls[2]])
     summary = {"graph": stat["graph"], "label": stat["paper_label"], "count": count,
                "input_sha256": identity["sha256"], "csv_sha256": csv_sha, "profiles": result,
-               "et2_minus_et1": terminal_comparison}
+               "et2_minus_et1": terminal_comparison, "mode_order_by_block": orders}
     if original is not None:
         archive, historical_runner_sha = original
         try:

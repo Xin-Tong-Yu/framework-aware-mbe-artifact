@@ -690,6 +690,7 @@ def run_matrix(args, cache, archive, modes, out):
     sampled_matrix = args.modes in ('single-profile', 'double-profile')
     if sampled_matrix:
         params['profile_seeds'] = [sampling_seed(args.seed, block) for block in range(1, args.repeats+1)]
+        params['order_design'] = 'paired-reversal-v1'
     manifest = out.with_suffix(out.suffix + '.manifest.json')
     checkpoint = out.with_suffix(out.suffix + '.checkpoint.json')
     blocks = []
@@ -707,7 +708,10 @@ def run_matrix(args, cache, archive, modes, out):
     print(f'[MATRIX] {len(modes)} modes, {args.repeats} paired blocks; times exclude build/preprocess',flush=True)
     orders = []
     rng = random.Random(args.seed)
-    for _ in range(args.repeats):
+    for index in range(args.repeats):
+        if sampled_matrix and index % 2:
+            orders.append(orders[-1][::-1])
+            continue
         order = list(modes)
         rng.shuffle(order)
         orders.append(order)
