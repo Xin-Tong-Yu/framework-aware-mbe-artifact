@@ -4,13 +4,14 @@
 import argparse
 import csv
 import hashlib
+from io import StringIO
 import json
 from pathlib import Path
 import re
 import statistics
 import sys
 
-from validate_pure_csv import EXPECTED, MODE_KIND, validate
+from validate_pure_csv import EXPECTED, MODE_KIND, validate_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 BLOCKS = sorted({block for block, _ in EXPECTED})
@@ -32,10 +33,10 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def verify_manifest(path, input_info, runner_sha, modes):
+def verify_manifest(path, input_info, runner_sha, modes, *, csv_sha=None):
     manifest = path.with_suffix(".csv.manifest.json")
     metadata = json.loads(manifest.read_text(encoding="utf-8"))
-    if metadata["csv_sha256"] != sha256(path):
+    if metadata["csv_sha256"] != (csv_sha if csv_sha is not None else sha256(path)):
         raise ValueError(f"{path}: CSV SHA-256 does not match its run manifest")
     params = metadata["parameters"]
     required = {"graph": input_info["file_name"], "input_sha256": input_info["sha256"],
@@ -52,12 +53,19 @@ def verify_manifest(path, input_info, runner_sha, modes):
     return metadata["csv_sha256"], protocol
 
 
-def load_graph(path, input_info, stat, runner_sha):
-    errors = validate(path, input_info["file_name"])
+def load_rows(path, input_info, runner_sha):
+    raw = path.read_bytes()
+    rows = list(csv.DictReader(StringIO(raw.decode("utf-8-sig"), newline="")))
+    errors = validate_rows(rows, input_info["file_name"])
     if errors:
         raise ValueError(f"{path}: {'; '.join(errors)}")
-    csv_sha, protocol = verify_manifest(path, input_info, runner_sha, MODE_KIND)
-    return summarize_graph_rows(records(path), input_info, stat, csv_sha), protocol
+    csv_sha, protocol = verify_manifest(path, input_info, runner_sha, MODE_KIND, csv_sha=hashlib.sha256(raw).hexdigest())
+    return rows, csv_sha, protocol
+
+
+def load_graph(path, input_info, stat, runner_sha):
+    rows, csv_sha, protocol = load_rows(path, input_info, runner_sha)
+    return summarize_graph_rows(rows, input_info, stat, csv_sha), protocol
 
 
 def summarize_graph_rows(rows, input_info, stat, csv_sha):

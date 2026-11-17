@@ -236,6 +236,20 @@ contrast. The table uses the median ratio within each graph and the
 geometric mean of those ratios across graphs. The direct ET2/ET1 contrast
 is computed from the two times in each block.
 
+To compare Table VII with the archive, provide the historical runner ZIP
+recorded in the archive and the snapshot of the runner used for the replay.
+
+```sh
+python3 scripts/compare_pure_replay.py archive.zip original-runner.zip \
+  outputs/icde_eab_pure_13 outputs/icde_eab_pure_13/runner_snapshot.zip \
+  outputs/icde_eab_pure_13/original_replay_comparison.json
+```
+
+The comparison checks counts, fingerprints, terminal attempts and hits,
+and the Double branch and terminal output counters for every block and mode.
+It records native source differences, CSV hashes, and paired timing ratios.
+Use `--graphs` with a list of graph names for a verified subset of a replay.
+
 The current pure runner source checkpoints complete paired blocks in
 `.csv.checkpoint.json`. Resume with the same inputs, runner ZIP, mode
 order, seed, and execution settings. The final CSV and manifest are

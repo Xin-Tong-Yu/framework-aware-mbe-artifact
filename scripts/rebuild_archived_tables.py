@@ -108,8 +108,7 @@ def read_fair_graph(raw, stat, expected_sha):
     return summary, protocol
 
 
-def read_pure_graph(archive, runner_sha, stat, identity):
-    graph = stat["graph"]
+def read_pure_rows(archive, runner_sha, graph, identity):
     checksums = f"{PURE_PREFIX}/checksums/{graph}"
     declared_input = archive.read(f"{checksums}.sha256").decode("ascii").strip()
     declared_runner = archive.read(f"{checksums}.zipsha256").decode("ascii").strip()
@@ -120,7 +119,12 @@ def read_pure_graph(archive, runner_sha, stat, identity):
     errors = validate_rows(rows, identity["file_name"])
     if errors:
         raise ValueError(f"{graph}: {'; '.join(errors)}")
-    return summarize_graph_rows(rows, identity, stat, digest(raw).hexdigest())
+    return rows, digest(raw).hexdigest()
+
+
+def read_pure_graph(archive, runner_sha, stat, identity):
+    rows, csv_sha = read_pure_rows(archive, runner_sha, stat["graph"], identity)
+    return summarize_graph_rows(rows, identity, stat, csv_sha)
 
 
 def fair_latex(summary):
