@@ -141,9 +141,14 @@ python3 scripts/summarize_state_and_guidance.py "$dir/framework_ablations" vi "$
 ```
 
 The summarizer checks graph identities, complete blocks, positive times,
-reference counts, and compatible fingerprints. The fifth speedup column of
+reference counts, and compatible fingerprints. The Table III JSON also
+compares successive builds directly within each block, along with the
+comparison of the combined Cursor and Pre-fork changes against Inline alone.
+The fifth speedup column of
 Table IV divides inline/no-CR by inline+CR search time in each block. The
 archived aggregate report gives a +7.7% geometric mean for that comparison.
+The Table IV JSON divides that within-block ratio by the CR ratio under the
+flat layout to quantify the interaction with Result Tree layout.
 Table V additionally checks equal branch counts for each matched Vector/Compact
 comparison. Its memory cells are medians of whole-process peak RSS over the
 ten ST runs of each build. The JSON files include the raw paired ratios and

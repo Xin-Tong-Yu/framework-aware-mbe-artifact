@@ -15,6 +15,11 @@ from summarize_pure_csv import ROOT, records, speedup
 
 
 CANDIDATE = ("v63_inline_st", "v63_core_st", "v63_core_d")
+CANDIDATE_ADDITIONS = {
+    "cursor_after_inline": CANDIDATE[:2],
+    "prefork_after_cursor": CANDIDATE[1:],
+    "both_after_inline": (CANDIDATE[0], CANDIDATE[2]),
+}
 CR = ("flat_cr", "inline_no_cr", "inline_cr")
 DOUBLE = ("vector_st", "compact_st", "vector_et_tg", "compact_et_tg")
 GUIDED = ("one_et", "one_et_tg", "two_et", "two_et_tg_compact")
@@ -69,12 +74,27 @@ def interpolate(first, last, weight):
     return first + (last - first) * weight
 
 
+def paired_summary(ratios):
+    return {"block_ratios": ratios, "median_ratio": median(ratios)}
+
+
+def contrast_over_graphs(contrasts):
+    medians = [contrast["median_ratio"] for contrast in contrasts]
+    paired = [ratio for contrast in contrasts for ratio in contrast["block_ratios"]]
+    return {"geometric_mean_ratio": geometric_mean(medians),
+            "positive_median_graphs": sum(ratio > 1 for ratio in medians),
+            "positive_blocks": sum(ratio > 1 for ratio in paired),
+            "negative_blocks": sum(ratio < 1 for ratio in paired),
+            "equal_blocks": paired.count(1)}
+
+
 def candidate_blocks(entry, modes, runs, count):
     raw = entry["blocks"]
     if set(raw) != {str(index) for index in range(runs)}:
         raise ValueError(f"expected exactly {runs} Candidate Tree blocks")
     fingerprints = {}
     paired = []
+    additions = {name: [] for name in CANDIDATE_ADDITIONS}
     expected = (set(modes) - {"st_only"}) | {"st_begin", "st_end"}
     for index in range(runs):
         block = raw[str(index)]
@@ -85,11 +105,14 @@ def candidate_blocks(entry, modes, runs, count):
         start, end = (positive(block[key]["clock"]) for key in ("st_begin", "st_end"))
         elapsed = positive(end - start)
         begin_ms, end_ms = (positive(block[key]["ms"]) for key in ("st_begin", "st_end"))
+        measured = {mode: positive(block[mode]["ms"]) for mode in CANDIDATE}
         paired.append([
-            interpolate(begin_ms, end_ms, (positive(block[key]["clock"]) - start) / elapsed)
-            / positive(block[key]["ms"]) for key in CANDIDATE
+            interpolate(begin_ms, end_ms, (positive(block[mode]["clock"]) - start) / elapsed) / measured[mode]
+            for mode in CANDIDATE
         ])
-    return paired, {}
+        for name, (control, variant) in CANDIDATE_ADDITIONS.items():
+            additions[name].append(measured[control] / measured[variant])
+    return paired, {"incremental_contrasts": {name: paired_summary(values) for name, values in additions.items()}}
 
 
 def native_jobs(block, anchors, variants, table):
@@ -142,6 +165,7 @@ def other_blocks(raw, table, runs, count):
     direct_modes = DIRECT_GUIDANCE if table == "vi" else {}
     direct = {framework: [] for framework in direct_modes}
     st_midpoints = {framework: [] for framework in direct_modes}
+    cr_interaction = []
     wall = []
     rss = {mode: [] for mode in anchors}
     for block in raw:
@@ -162,8 +186,9 @@ def other_blocks(raw, table, runs, count):
         if table == "iv":
             reference = (timings["flat_no_cr_begin"] + timings["flat_no_cr_end"]) / 2
             ratios = [reference / timings[mode] for mode in CR]
-            paired.append([*ratios, timings["flat_cr"] / timings["inline_cr"],
-                           timings["inline_no_cr"] / timings["inline_cr"]])
+            inline_cr_gain = timings["inline_no_cr"] / timings["inline_cr"]
+            paired.append([*ratios, timings["flat_cr"] / timings["inline_cr"], inline_cr_gain])
+            cr_interaction.append(inline_cr_gain / ratios[0])
         else:
             paired.append(anchored_ratios(jobs, anchors, variants, "ms"))
         for framework, (control, variant) in direct_modes.items():
@@ -180,6 +205,8 @@ def other_blocks(raw, table, runs, count):
                 if len(branches) != 1 or type(next(iter(branches))) is not int or min(branches) <= 0:
                     raise ValueError(f"branch work changed between {vector} and {compact}")
 
+    if table == "iv":
+        return paired, {"cr_layout_interaction": paired_summary(cr_interaction)}
     if table == "v":
         return paired, {"median_peak_rss_mib": {mode: median(values) for mode, values in rss.items()},
                         "block_wall_ratios": wall,
@@ -187,8 +214,7 @@ def other_blocks(raw, table, runs, count):
     if table == "vi":
         return paired, {
             "median_st_ms": {framework: median(values) for framework, values in st_midpoints.items()},
-            "direct_guidance": {framework: {"block_ratios": values, "median_ratio": median(values)}
-                                for framework, values in direct.items()},
+            "direct_guidance": {framework: paired_summary(values) for framework, values in direct.items()},
         }
     return paired, {}
 
@@ -283,6 +309,13 @@ def summarize(suite, table, stats, runs):
         "geometric_mean_ratios": [geometric_mean(g["median_ratios"][i] for g in graphs)
                                   for i in range(len(columns))],
     }
+    if table == "iii":
+        summary["incremental_contrasts"] = {
+            name: contrast_over_graphs([graph["incremental_contrasts"][name] for graph in graphs])
+            for name in CANDIDATE_ADDITIONS
+        }
+    if table == "iv":
+        summary["cr_layout_interaction"] = contrast_over_graphs([graph["cr_layout_interaction"] for graph in graphs])
     if table == "v":
         summary["geometric_mean_wall_ratios"] = [
             geometric_mean(graph["median_wall_ratios"][i] for graph in graphs)
