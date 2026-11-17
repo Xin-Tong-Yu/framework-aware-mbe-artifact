@@ -75,6 +75,12 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
     csv_sha, protocol = verify_manifest(path, identity, runner_sha, modes)
     if protocol.get("matrix") != framework + "-profile":
         raise ValueError(f"{path}: expected the {framework}-profile matrix")
+    seeds = protocol.get("profile_seeds")
+    if seeds is not None and (not isinstance(seeds, list) or len(seeds) != len(BLOCKS)
+                            or any(not isinstance(seed, str) or not re.fullmatch(r"[0-9]{1,20}", seed)
+                                   or int(seed) >= 2**64 for seed in seeds)
+                            or len(set(seeds)) != len(BLOCKS)):
+        raise ValueError(f"{path}: expected one distinct 64-bit profiling seed per block")
     rows = records(path)
     by_block = {(int(row["block"]), row["mode"]): row for row in rows}
     expected = {(block, mode) for block in BLOCKS for mode in modes}
@@ -94,11 +100,15 @@ def summarize_graph(path, stat, identity, runner_sha, framework, controls, pair_
     for control, profiled in zip(controls, profiled_modes):
         blocks = []
         for block in BLOCKS:
+            control_row, sampled_row = by_block[block, control], by_block[block, profiled]
+            seed = seeds[block - 1] if seeds is not None else ""
+            if control_row.get("profile_seed", "") or sampled_row.get("profile_seed", "") != seed:
+                raise ValueError(f"{path} block {block} {profiled}: profiling seed differs from the manifest")
             try:
-                pair = pair_check(by_block[block, control], by_block[block, profiled])
+                pair = pair_check(control_row, sampled_row)
             except (KeyError, TypeError, ValueError) as error:
                 raise ValueError(f"{path} block {block} {control}: {error}") from error
-            blocks.append({"block": block, **pair})
+            blocks.append({"block": block, "profile_seed": seed or None, **pair})
         result[control] = {"blocks": blocks, "median_profile_to_control_time_ratio": median(
             pair["profile_to_control_time_ratio"] for pair in blocks)}
     return {"graph": stat["graph"], "label": stat["paper_label"], "count": count,
@@ -132,6 +142,8 @@ def profile_main(description, framework, controls, pair_check):
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
     print(f"PASS: {len(graphs)} graphs x {len(BLOCKS)} validated profile blocks")
+    if protocol.get("profile_seeds"):
+        print(f"[PROFILE_SEEDS] {len(protocol['profile_seeds'])} distinct seeds verified across paired blocks")
     for graph in graphs:
         for mode, profile in graph["profiles"].items():
             blocks = profile["blocks"]

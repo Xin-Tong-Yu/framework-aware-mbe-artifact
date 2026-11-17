@@ -115,6 +115,41 @@ class PureResumeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_stub(self.result)
 
+    def test_profile_blocks_preserve_distinct_seeds_on_resume(self):
+        self.args.modes = "single-profile"
+        modes = self.runner.SINGLE_PROFILE_MATRIX
+
+        def recorded(mode, *args, **kwargs):
+            row, stdout = self.result(mode, *args, **kwargs)
+            row["profile_seed"] = kwargs.get("profile_seed") or ""
+            return row, stdout
+
+        def interrupted(mode, *args, **kwargs):
+            if len(self.calls) == len(modes) + 1:
+                raise KeyboardInterrupt
+            return recorded(mode, *args, **kwargs)
+
+        with patch.object(self.runner, "execute", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                self.runner.run_matrix(self.args, self.root, self.archive, modes, self.output)
+
+        checkpoint = json.loads(self.checkpoint.read_bytes())
+        original = checkpoint["blocks"][0]
+        seeds = checkpoint["parameters"]["profile_seeds"]
+        self.assertEqual(len(set(seeds)), self.args.repeats)
+
+        self.calls.clear()
+        with patch.object(self.runner, "execute", side_effect=recorded):
+            self.runner.run_matrix(self.args, self.root, self.archive, modes, self.output)
+        self.assertEqual(len(self.calls), 2 * len(modes))
+        with self.output.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        for row in rows:
+            expected = seeds[int(row["block"]) - 1] if row["mode"].endswith("_profile") else ""
+            self.assertEqual(row["profile_seed"], expected)
+        self.assertEqual([float(row["time_s"]) for row in rows[:len(modes)]],
+                         [row["time_s"] for row in original])
+
 
 if __name__ == "__main__":
     unittest.main()

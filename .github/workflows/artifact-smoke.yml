@@ -61,9 +61,11 @@ jobs:
           python3 scripts/package_pure_gate.py "$runner"
           for framework in single double; do
             target="$scratch/$framework"
-            MBE2_OPT=O3 MBE2_CACHE="$scratch/build_cache" \
-              python3 "$runner" all data_clean/forum.txt --modes "$framework-profile" \
-              --repeats 5 --timeout 30 --out "$target/forum.csv"
+            command=(env MBE2_OPT=O3 MBE2_CACHE="$scratch/build_cache"
+              python3 "$runner" all data_clean/forum.txt --modes "$framework-profile"
+              --repeats 5 --timeout 30 --out "$target/forum.csv" --resume)
+            "${command[@]}"
+            "${command[@]}" | grep -F 'complete matrix matches the current run configuration'
             python3 "scripts/summarize_${framework}_profile.py" "$target" --runner "$runner" \
               --graphs forum --json "$target/smoke.json"
           done

@@ -429,6 +429,7 @@ def parse_stats(kind,stdout):
                     branch_calls='',et_output_count='')
         stats.update({name: pick(rf'^Single_ET_Profile_{label}:\s*(\d+)')
                       for name, label in SINGLE_PROFILE_STATS.items()})
+        stats['profile_seed'] = pick(r'^Single_ET_Profile_Seed:\s*(\d+)$')
         return stats
     ms=pick(r'Maximal_BiClique_Count:\s*(\d+), Time:\s*(\d+) ms')
     count=ms
@@ -449,6 +450,7 @@ def parse_stats(kind,stdout):
                 et_pattern_components=pick(r'^ET_Pattern_Components:\s*(\d+)'))
     stats.update({name: pick(rf'^ET_Profiler_{label}:\s*([\d.]+)')
                   for name, label in PROFILE_STATS.items()})
+    stats['profile_seed'] = pick(r'^ET_Profiler_Seed:\s*(\d+)$')
     return stats
 
 def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
@@ -474,14 +476,18 @@ def command(mode,exe,single_path,double_path,min_left,min_right,emit_path=None):
     if emit_path:cmd+=['-o',str(emit_path)]
     return cmd
 
-def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,precomputed=None,exe=None):
+def execute(mode,cache,archive,graph,min_left,min_right,timeout,emit_path=None,quiet=False,
+            precomputed=None,exe=None,profile_seed=None):
     if exe is None:
         exe=build(mode,cache,archive,quiet=quiet)
     paths=precomputed if precomputed is not None else graph_variants(graph,cache)
     cmd=command(mode,exe,*paths,min_left,min_right,emit_path)
+    env = None
+    if profile_seed is not None:
+        env = {**os.environ, 'MBE_ET_PROFILE_SEED': str(profile_seed)}
     t=time.perf_counter()
     try:
-        proc=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+        proc=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,env=env)
     except subprocess.TimeoutExpired:die(mode+' exceeded timeout '+str(timeout)+'s')
     elapsed=time.perf_counter()-t
     # Print small adjacency-allocation diagnostics even on successful runs.
@@ -608,7 +614,7 @@ MATRIX_FIELDS = (
     'graph', 'block', 'mode', 'kind', 'time_s', 'wall_s', 'count', 'et', 'tg',
     'et_attempt', 'et_hit', 'et_degree2_hit', 'fingerprint', 'rss_mib',
     'tg2_score_states', 'tg2_score_changes', 'tg2_cache_used', 'tg2_cache_fallback',
-    'branch_calls', 'et_output_count', *PROFILE_STATS, *SINGLE_PROFILE_STATS, 'et_pattern_components',
+    'branch_calls', 'et_output_count', *PROFILE_STATS, *SINGLE_PROFILE_STATS, 'profile_seed', 'et_pattern_components',
 )
 
 
@@ -639,6 +645,11 @@ def block_signature(rows, graph, order, block):
 def checkpoint_digest(blocks):
     payload = json.dumps(blocks, sort_keys=True, separators=(',', ':'), allow_nan=False)
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def sampling_seed(seed, block):
+    key = f'mbe-et-profile-v1:{seed}:{block}'.encode('ascii')
+    return str(int.from_bytes(hashlib.sha256(key).digest()[:8], 'big'))
 
 
 def load_matrix_checkpoint(checkpoint, params):
@@ -676,6 +687,9 @@ def run_matrix(args, cache, archive, modes, out):
                   compiler=list(compiler_identity()), host=list(platform.uname()),
                   affinity=sorted(os.sched_getaffinity(0)),
                   stack=list(resource.getrlimit(resource.RLIMIT_STACK)))
+    sampled_matrix = args.modes in ('single-profile', 'double-profile')
+    if sampled_matrix:
+        params['profile_seeds'] = [sampling_seed(args.seed, block) for block in range(1, args.repeats+1)]
     manifest = out.with_suffix(out.suffix + '.manifest.json')
     checkpoint = out.with_suffix(out.suffix + '.checkpoint.json')
     blocks = []
@@ -702,6 +716,7 @@ def run_matrix(args, cache, archive, modes, out):
     reused = len(blocks)
     paths = None
     for block, order in enumerate(orders, 1):
+        profile_seed = params['profile_seeds'][block - 1] if sampled_matrix else None
         if block <= reused:
             rows = blocks[block - 1]
         else:
@@ -709,13 +724,20 @@ def run_matrix(args, cache, archive, modes, out):
                 paths = graph_variants(graph, cache, graph_sha)
             rows = []
             for mode in order:
+                mode_seed = profile_seed if MODES[mode][1].get('profile') else None
                 row, _ = execute(mode, cache, archive, args.graph, args.min_left, args.min_right,
-                                 args.timeout, quiet=True, precomputed=paths, exe=executables[mode])
+                                 args.timeout, quiet=True, precomputed=paths, exe=executables[mode],
+                                 profile_seed=mode_seed)
                 row['block'] = block
                 rows.append(row)
                 print(f'[RUN] {block} {mode} search_s={row["time_s"]} count={row["count"]} '
                       f'ET_hit={row["et_hit"]}', flush=True)
         signature = block_signature(rows, graph_name, order, block)
+        if sampled_matrix:
+            for row in rows:
+                expected_seed = profile_seed if MODES[row['mode']][1].get('profile') else ''
+                if row['profile_seed'] != expected_seed:
+                    die(f'Block {block}: unexpected profiling seed in {row["mode"]}')
         if reference is None:
             reference = signature
         elif signature != reference:

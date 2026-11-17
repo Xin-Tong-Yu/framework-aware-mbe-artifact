@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <numeric>
@@ -115,6 +116,7 @@ struct MBETFastConfig {
 #ifdef MBE_ET_PROFILE
 struct MBETTerminalProfile {
   static constexpr unsigned sample_interval = 64;
+  uint64_t seed = 0;
   uint64_t gate_samples = 0, terminal_samples = 0;
   uint64_t output_calls = 0, output_samples = 0;
   uint64_t gate_ns = 0, terminal_ns = 0, fallback_ns = 0;
@@ -724,6 +726,9 @@ class MBETFast {
     result_tree_size_total_ = 0;
     stats_ = {};
 #ifdef MBE_ET_PROFILE
+    if (const char *seed = std::getenv("MBE_ET_PROFILE_SEED")) {
+      stats_.et_profile.seed = std::stoull(seed);
+    }
     sample_terminal_ = false;
 #endif
 #ifdef MBE_ET13_DIAG
@@ -1248,8 +1253,8 @@ class MBETFast {
   using ETProfileClock = std::chrono::steady_clock;
   bool sample_terminal_ = false;
 
-  static bool ProfileSample(uint64_t ordinal) {
-    return SplitMix64(ordinal) % MBETTerminalProfile::sample_interval == 0;
+  bool ProfileSample(uint64_t ordinal) const {
+    return SplitMix64(ordinal ^ stats_.et_profile.seed) % MBETTerminalProfile::sample_interval == 0;
   }
 
   static uint64_t ProfileElapsed(ETProfileClock::time_point begin) {

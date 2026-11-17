@@ -450,6 +450,7 @@ int main(int argc, char **argv) {
 #ifdef MBE_ET_PROFILE
     const auto &profile = st.et_profile;
     std::cout << "Single_ET_Profile_Interval: " << MBETTerminalProfile::sample_interval << "\n";
+    std::cout << "Single_ET_Profile_Seed: " << profile.seed << "\n";
     std::cout << "Single_ET_Profile_GateCalls: " << st.v59_dispatch_calls << "\n";
     std::cout << "Single_ET_Profile_GateSamples: " << profile.gate_samples << "\n";
     std::cout << "Single_ET_Profile_TerminalSamples: " << profile.terminal_samples << "\n";

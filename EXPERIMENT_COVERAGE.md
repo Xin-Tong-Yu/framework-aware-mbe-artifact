@@ -248,8 +248,9 @@ python3 scripts/summarize_double_profile.py "$dir" --runner "$runner" --json "$d
 The JSON records the ratio of instrumented to ordinary time per block,
 sample sizes, measured phase sums, and phase estimates. An estimate scales
 the measured sum by total calls divided by sampled calls for that phase.
-The same traversal samples the same ordinals on every repeat, so repeated
-timings capture timing variation for those samples.
+Each block derives a new sampling seed from the campaign seed and block
+number. The profiled modes in a block use the same seed. Manifests and CSVs
+record these seeds so a resumed block retains the same sampling design.
 Eligibility includes the exclusion check and degree scan. Setup, complement
 construction, component decomposition, and generation cover the timed parts
 of terminal attempts. Generation includes the terminal output callback.

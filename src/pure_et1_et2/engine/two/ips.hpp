@@ -9,6 +9,8 @@
 #include <cassert>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 
 #ifndef IPS_ET_TARGET_DEGREE
 #define IPS_ET_TARGET_DEGREE 2
@@ -32,6 +34,7 @@ private:
     uint64_t twoBiplexNonmatchingHits = 0, twoBiplexScanPairs = 0;
 #ifdef IPS_ET_PROFILE
     static_assert(IPS_ET_PROFILE_SAMPLE_INTERVAL > 0, "profile sample interval must be positive");
+    uint64_t profSeed=0;
     uint64_t profGateCalls=0, profGatePasses=0, profGateNs=0;
     uint64_t profSetupNs=0, profBuildNs=0, profDecompNs=0, profGenerateNs=0;
     uint64_t profTerminalCalls=0, profTerminalCandidateSum=0, profMaxCandidate=0;
@@ -87,8 +90,8 @@ private:
 #ifdef IPS_ET_PROFILE
     using ProfileTime = std::chrono::steady_clock::time_point;
 
-    static bool profileSample(uint64_t ordinal) {
-        return mix64(ordinal) % IPS_ET_PROFILE_SAMPLE_INTERVAL == 0;
+    bool profileSample(uint64_t ordinal) const {
+        return mix64(ordinal ^ profSeed) % IPS_ET_PROFILE_SAMPLE_INTERVAL == 0;
     }
 
     static ProfileTime profileNow(bool sampled) {
@@ -1217,6 +1220,8 @@ public:
         profTerminalCalls = profTerminalCandidateSum = profMaxCandidate = 0;
         profGateSamples = profTerminalSamples = profEmitNs = 0;
         profFallbacks = profFallbackNs = 0;
+        const char *seed = std::getenv("MBE_ET_PROFILE_SEED");
+        profSeed = seed ? std::stoull(seed) : 0;
 #endif
         enumerationChecksum = currentResultHash = 0;
         enumerationSetXor = enumerationSetSum = 0;
@@ -1421,6 +1426,7 @@ public:
         printf("2Biplex_Terminal: path/cycle MIS with max-defect-%d gate\n",IPS_ET_TARGET_DEGREE);
 #ifdef IPS_ET_PROFILE
         printf("ET_Profiler_Sample_Interval: %d\n", IPS_ET_PROFILE_SAMPLE_INTERVAL);
+        printf("ET_Profiler_Seed: %lu\n",profSeed);
         printf("ET_Profiler_Gate_Calls: %lu\n",profGateCalls);
         printf("ET_Profiler_Gate_Passes: %lu\n",profGatePasses);
         printf("ET_Profiler_Gate_Samples: %lu\n",profGateSamples);
