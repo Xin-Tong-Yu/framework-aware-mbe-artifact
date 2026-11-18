@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Validate a six-mode, five-block pure ET1/ET2 benchmark CSV.
 
-This checks coverage and within-framework result agreement. It does not
+This checks coverage, within-framework result agreement, and Table I reference
+counts for the thirteen named inputs. It does not
 establish that a particular implementation enumerates the mathematically
 correct answer set, nor does it benchmark any algorithm.
 """
@@ -58,7 +59,7 @@ def validate(path, expected_graph=None):
                 raise ValueError("block out of range")
             if not graph:
                 raise ValueError("missing graph name")
-            if count <= 0 or not math.isfinite(time_s) or time_s < 0:
+            if count <= 0 or not math.isfinite(time_s) or time_s <= 0:
                 raise ValueError("invalid count or time")
             if not fp or "|" not in fp:
                 raise ValueError("invalid fingerprint")
@@ -86,6 +87,16 @@ def validate(path, expected_graph=None):
         errors.append(f"graph field must equal {expected_graph!r}, found {sorted(graphs)}")
     if len(counts) != 1:
         errors.append(f"inconsistent result counts: {sorted(counts)}")
+    if len(graphs) == 1:
+        # Table I of the submitted paper supplies an independent count check;
+        # all six modes agreeing with one another is not sufficient.
+        statistics = Path(__file__).resolve().parent.parent / "data/GRAPH_STATISTICS.csv"
+        with statistics.open(newline="", encoding="utf-8") as stream:
+            references = {row["graph"] + ".txt": int(row["reference_bicliques"])
+                          for row in csv.DictReader(stream)}
+        graph = next(iter(graphs))
+        if graph in references and counts != {references[graph]}:
+            errors.append(f"{graph}: expected Table I count {references[graph]}, found {sorted(counts)}")
     for kind, values in fingerprints.items():
         if len(values) != 1:
             errors.append(f"inconsistent {kind} fingerprints: {len(values)} distinct values")

@@ -5,7 +5,7 @@ The additional C++ and Python campaign sources are provided in the pinned archiv
 
 The archive is checked against SHA-256:
 
-`c6d1d8586cb5dff16ed3b87f35379e0c77e13a6533eb53774c26f6798ecb8995`
+`dc1afca817d4256b8e474d034840fe9f8fadbc3dec0cdde1a81806df1fcf7173`
 
 ## Installation
 
