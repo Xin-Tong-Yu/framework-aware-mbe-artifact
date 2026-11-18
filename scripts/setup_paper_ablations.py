@@ -10,7 +10,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE = ROOT / "src/paper_ablations/MBE_PAPER_ABLATIONS_FINAL_SOURCE_BUNDLE.zip"
-EXPECTED_SHA256 = "c6d1d8586cb5dff16ed3b87f35379e0c77e13a6533eb53774c26f6798ecb8995"
+EXPECTED_SHA256 = "dc1afca817d4256b8e474d034840fe9f8fadbc3dec0cdde1a81806df1fcf7173"
 OUTPUT = ROOT / "outputs/paper_suite"
 SUITE = OUTPUT / "framework_ablations"
 REQUIRED = [

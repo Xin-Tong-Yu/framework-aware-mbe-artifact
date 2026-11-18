@@ -1,4 +1,4 @@
-# Framework-Aware Search-State Optimization for Maximal Biclique Enumeration
+# Search-State Optimization in Maximal Biclique Enumeration: A Controlled Cross-Framework Study
 
 Experimental artifact for reproducing the maximal biclique enumeration comparisons and ablation studies in the associated paper.
 
@@ -14,13 +14,15 @@ This repository provides **experiment source code, thirteen cleaned bipartite gr
 | `scripts/` | Data reconstruction, integrity checking, campaign entry points, and output validation |
 | `data/parts/` | Six contiguous parts of the canonical cleaned-graph archive |
 | `data/COLLECTED_INPUT_SHA256.csv` | Per-graph input SHA-256 and byte-size manifest |
-| `data/GRAPH_STATISTICS.csv` | Graph vertex, edge, and maximum-degree statistics |
+| `data/GRAPH_STATISTICS.csv` | Graph statistics, paper labels, and Table I reference biclique counts |
 | `EXPERIMENT_COVERAGE.md` | Study-to-command mapping and timing/output protocol notes |
 | `SOURCE_ATTRIBUTION.md` | Third-party algorithm and dataset provenance |
 
 ## Requirements
 
 Linux or WSL2; Python 3.9 or later; GCC/G++ with C++17 support; CMake; Bash; and standard Unix utilities. The reference environment used Ubuntu 24.04 and GCC 13.3.0. Experiments use single-threaded execution. Runtime and memory usage depend on the input graph and machine; allow sufficient RAM and disk space. The pure-biplex BibSonomy campaign uses a 256 MiB stack allowance in its launcher.
+
+Section IV-A pins logical CPU 0. The commands below select it explicitly, and the pure thirteen-graph launcher defaults to `CPU=0`. If CPU 0 is unavailable, choose one allowed CPU with `CPU=2 bash scripts/run_pure_13.sh` or change the other commands' `--cpu`/`taskset` argument. Record the changed setting and use a new output directory; an existing CSV does not establish that it was measured under the current CPU setting.
 
 ## 1. Prepare and verify the thirteen graph inputs
 
@@ -61,14 +63,14 @@ bash scripts/run_paper_ablations.sh oracle 20
 
 The `oracle` launcher compiles the required native executables on first use, **before** the oracle's per-mode execution timeout begins.
 
-## 3. Run the four-mode MBET comparison
+## 3. Run the four-mode MBET comparison (Table II)
 
 ```bash
 mkdir -p outputs
 
 python3 runners/MBE_FAIR_MBET_2024.zip bench data_clean/youtube.txt \
   --modes mbet,mbetm,st_nocr,st_cr \
-  --repeats 5 --out outputs/youtube_fair.csv
+  --repeats 5 --cpu 0 --out outputs/youtube_fair.csv
 ```
 
 To run the thirteen-graph batch with saved progress:
@@ -77,18 +79,19 @@ To run the thirteen-graph batch with saved progress:
 python3 runners/MBE_FAIR_MBET_2024.zip batch \
   --data-dir data_clean \
   --modes mbet,mbetm,st_nocr,st_cr \
-  --repeats 5 --timeout 7200 \
+  --repeats 5 --timeout 7200 --cpu 0 \
   --out-dir outputs/fair_13 --resume
 ```
 
 The four modes use aligned count and order-independent XOR/SUM fingerprints; disk tuple writing is disabled in the benchmark configuration.
 
-## 4. Run the unguided ET1/ET2 ablation
+## 4. Run the unguided ET1/ET2 ablation (Table VII)
 
 ```bash
 mkdir -p outputs/pure_13
+ulimit -s 262144
 
-python3 runners/MBE_PURE_ET1_ET2.zip all data_clean/youtube.txt \
+taskset -c 0 python3 runners/MBE_PURE_ET1_ET2.zip all data_clean/youtube.txt \
   --modes pure --repeats 5 --out outputs/pure_13/youtube.csv
 
 python3 scripts/validate_pure_csv.py \
@@ -101,17 +104,27 @@ For the thirteen-graph campaign:
 bash scripts/run_pure_13.sh
 ```
 
-The `pure` matrix compares ST, ET1, and ET2 with termination guidance disabled in each framework. The batch launcher validates an existing six-mode, five-block CSV before skipping it; an incomplete or inconsistent file is reported instead of silently reused.
+The `pure` matrix compares ST, ET1, and ET2 with TG, CR, Pre-fork, and pattern reuse disabled. Double uses Compact state and a shared 256 MiB adjacency-bitmap budget with exact hash fallback; Single uses the 30-defect, 60-active-vertex, 4096-answer, and 64-path admission limits in Section III-E. The batch launcher pins the selected CPU and sets a 256 MiB stack. It validates an existing six-mode, five-block CSV before skipping it; an incomplete or inconsistent file is reported instead of silently reused.
+
+The graph manifest's `paper_label` and `reference_bicliques` columns reproduce the abbreviations and nonempty-side maximal-biclique counts in Table I of the submitted paper. The CSV validator checks these reference counts for the thirteen known inputs and requires positive finite search times. Run `python3 -B -m unittest discover -s tests -v` for the validation regressions.
 
 ## 5. Run the other manuscript ablations
 
 The commands below use the pinned source bundle installed in Step 2. Each invokes its original study driver and writes its own generated outputs inside the ignored experiment workspace.
 
 ```bash
-bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200
-bash scripts/run_paper_ablations.sh result-cr --runs 5 --timeout 1200
-bash scripts/run_paper_ablations.sh double-2x2 --runs 5 --timeout 1200
-bash scripts/run_paper_ablations.sh six-mode --runs 5 --timeout 1200
+bash scripts/run_paper_ablations.sh candidate --runs 5 --timeout 1200 --cpu 0 \
+  --modes st_only v63_inline_st v63_core_st v63_core_d
+bash scripts/run_paper_ablations.sh result-cr --runs 5 --timeout 1200 --cpu 0
+bash scripts/run_paper_ablations.sh double-2x2 --runs 5 --timeout 1200 --cpu 0
+bash scripts/run_paper_ablations.sh six-mode --runs 5 --timeout 1200 --cpu 0
+```
+
+These four commands correspond to Tables III, IV, V, and VI respectively. Table III's explicit mode list selects its cumulative state-layout ablation; the driver also offers additional terminal prototypes. Table VI uses Single's bounded mask closure with degree-two prefix guidance and Double's matching terminal with its corresponding pivot, separately from Table VII's unguided ET1/ET2 solvers.
+
+The bundle also retains additional native IPS count-aggregation studies, outside Tables II-VII:
+
+```bash
 bash scripts/run_paper_ablations.sh ips-native-baseline --runs 5 --timeout 1200
 bash scripts/run_paper_ablations.sh ips-native-ablation --runs 5 --timeout 1200
 ```

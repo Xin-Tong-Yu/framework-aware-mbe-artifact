@@ -3,6 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 DATA_DIR="${DATA_DIR:-data_clean}"
 OUT_DIR="${OUT_DIR:-outputs/pure_13}"
+CPU="${CPU:-0}"
+# Section IV-A pins one logical CPU. Fail when it is unavailable rather than
+# silently collecting an unpinned campaign; CPU may select another allowed CPU.
+if [[ ! "$CPU" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] CPU must name one logical CPU (default: 0)." >&2
+    exit 2
+fi
+taskset -c "$CPU" true
 mkdir -p "$OUT_DIR"
 
 # Match the increased stack allowance used for the completed BibSonomy runs.
@@ -25,7 +33,7 @@ for graph in forum ukwiki escorts youtube github bkcrossing stackoverflow actors
         exit 1
     fi
     echo "[RUN] $graph"
-    python3 runners/MBE_PURE_ET1_ET2.zip all "$input" \
+    taskset -c "$CPU" python3 runners/MBE_PURE_ET1_ET2.zip all "$input" \
       --modes pure --repeats 5 --out "$output" \
       2>&1 | tee "$OUT_DIR/$graph.log"
     python3 scripts/validate_pure_csv.py --graph "$graph.txt" "$output"

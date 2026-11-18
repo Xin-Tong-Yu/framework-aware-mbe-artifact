@@ -757,7 +757,7 @@ private:
                     // Degree-two-aware TG: prioritize pivots that obstruct
                     // a degree-two missing-edge terminal. This ONLY changes
                     // pivot choice; the IPS partition construction is fixed.
-                    if (ndC[t][u] > 2 || ndX[t][u] > 0) {
+                    if (ndC[t][u] > IPS_ET_TARGET_DEGREE || ndX[t][u] > 0) {
                         isPivot=true;
                     } else if (ndC[t][u]>0) {
                         // A missing neighbor with degree >IPS_ET_TARGET_DEGREE is an obstruction.
@@ -795,7 +795,7 @@ private:
                             exactCache=true;
                             ++tg2CacheUsed;
                             isPivot=(ndC[z][a]>IPS_ET_TARGET_DEGREE ||
-                                     (dc==IPS_ET_TARGET_DEGREE && ndC[z][b]>IPS_ET_TARGET_DEGREE));
+                                     (dc==2 && ndC[z][b]>IPS_ET_TARGET_DEGREE));
                         }
 #endif
                         if (!exactCache) {
